@@ -124,14 +124,16 @@ struct rs_motor_data {
 	uint16_t RAWtemp;
 
 	uint8_t error_code;
+	uint8_t missed_times;
 	bool online;
 	bool enabled;
+	bool reporting;
 	struct pid_config params;
+	uint32_t last_report_time;
 };
 
 struct rs_motor_cfg {
 	struct motor_driver_config common;
-	int report_interval_ms; // Reporting interval in milliseconds
 	enum MOTOR_TYPE motor_type;
 
 	float p_max;
@@ -144,6 +146,8 @@ int rs_set(const struct device *dev, motor_status_t *status);
 int rs_get(const struct device *dev, motor_status_t *status);
 void rs_motor_control(const struct device *dev, enum motor_cmd cmd);
 int rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
+
+void rs_rx_monitor_handler(struct k_work *work);
 
 static const struct motor_driver_api rs_motor_api = {
 	.motor_get = rs_get,
@@ -160,7 +164,7 @@ K_THREAD_STACK_DEFINE(rs_work_queue_stack, CAN_SEND_STACK_SIZE);
 
 K_MSGQ_DEFINE(rs_thread_proc_msgq, sizeof(bool), MOTOR_COUNT * 2, 4);
 
-// K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
+K_WORK_DELAYABLE_DEFINE(rs_rx_monitor_work, rs_rx_monitor_handler);
 
 #define RS_MOTOR_DATA_INST(inst)                                                                   \
 	static struct rs_motor_data rs_motor_data_##inst = {                                       \
@@ -177,8 +181,6 @@ K_MSGQ_DEFINE(rs_thread_proc_msgq, sizeof(bool), MOTOR_COUNT * 2, 4);
 #define RS_MOTOR_CONFIG_INST(inst)                                                                 \
 	static const struct rs_motor_cfg rs_motor_cfg_##inst = {                                   \
 		.common = MOTOR_DT_DRIVER_CONFIG_INST_GET(inst),                                   \
-		.report_interval_ms =                                                              \
-			(int)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), report_interval_ms, 100),    \
 		.motor_type = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02),          \
 		.p_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 12.57f),                  \
 		.v_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 44.0f),                   \

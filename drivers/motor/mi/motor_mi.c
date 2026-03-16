@@ -68,7 +68,7 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 	// uint16_t master_id;
 
 	struct mi_can_id *mi_can_id = (struct mi_can_id *)&(frame.id);
-	mi_can_id->id = cfg->common.i;
+	mi_can_id->id = cfg->common.id;
 	switch (cmd) {
 	case ENABLE_MOTOR:
 

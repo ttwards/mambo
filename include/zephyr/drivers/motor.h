@@ -122,7 +122,9 @@ enum motor_cmd {
 	DISABLE_MOTOR,
 	SET_ZERO,
 	CLEAR_PID,
-	CLEAR_ERROR
+	CLEAR_ERROR,
+	AUTO_REPORT_ENABLE,	//rs motor only
+	AUTO_REPORT_DISABLE //rs motor only
 };
 
 struct motor_driver_config {

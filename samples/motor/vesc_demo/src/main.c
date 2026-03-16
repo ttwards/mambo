@@ -2,8 +2,9 @@
  * VESC BLDC Demo Application
  *
  * @author: EclipseaHime017
- * @date: 2026-01-09
- * Description: Demonstrates control of the Robstride RS02 brushless DC motor using Zephyr RTOS.
+ * @create: 2026-01-09
+ * @update: 2026-03-16
+ * Description: Demonstrates control of the VESC brushless DC motor using Zephyr RTOS.
  */
 
 #include <zephyr/device.h>

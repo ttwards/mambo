@@ -2,7 +2,8 @@
  * RS02 BLDC Demo Application
  *
  * @author: EclipseaHime017
- * @date: 2025-12-18
+ * @create: 2025-12-18
+ * @update: 2026-03-16
  * Description: Demonstrates control of the Robstride RS02 brushless DC motor using Zephyr RTOS.
  */
 
@@ -48,18 +49,20 @@ void motor_monitor_thread(void *arg1, void *arg2, void *arg3)
 	ARG_UNUSED(arg3);
 
 	while (1) {
-		k_msleep(500); // 每秒检查一次
-
 		motor_status_t status;
 		int ret = motor_get(motor, &status);
 
-		if (ret != 0) {
+		while (ret != 0) {
 			LOG_ERR("读取电机状态失败: %d", ret);
+			k_msleep(1000); // 1秒后重试
+			ret = motor_get(motor, &status);
 			continue;
 		}
 
 		LOG_INF("motor torque: %.2f, speed: %.2f, angle: %.2f", status.torque, status.rpm,
 			status.angle);
+
+		k_msleep(200);
 	}
 }
 
@@ -79,37 +82,37 @@ int main(void)
 	}
 
 	// 启用电机
-	motor_control(motor, CLEAR_ERROR);
-	k_msleep(50); // 等待错误清除
-
 	motor_control(motor, ENABLE_MOTOR);
 	k_msleep(100); // 等待电机使能
 
+	motor_control(motor, AUTO_REPORT_ENABLE);
+	k_msleep(100); // 等待自动报告使能
+
+	motor_control(motor, SET_ZERO);
+	k_msleep(100);
+
 	motor_set_mode(motor, MIT);
 	LOG_INF("电机已启用");
-
-	state_start_time = k_uptime_get_32();
-
+	k_msleep(1000);
+	
+	
 	struct pid_config pid_params;
 	pid_get_params(pid_controller, &pid_params);
 	/* Start Feedback thread*/
 	while (1) {
+
 		// 重置PID参数
 		pid_params.k_p = 20.0f;
 		pid_params.k_d = 1.0f;
 		pid_set_params(pid_controller, &pid_params);
 		// 位置环测试
+		motor_set_mit(motor, 0.0f, -90.0f, 0.0f);
+		k_msleep(2000);
 		motor_set_mit(motor, 0.0f, 0.0f, 0.0f);
-		k_msleep(1000);
+		k_msleep(2000);
 		motor_set_mit(motor, 0.0f, 90.0f, 0.0f);
-		k_msleep(1000);
-		motor_set_mit(motor, 0.0f, -90.0f, 0.0f);
-		k_msleep(1000);
-		motor_set_mit(motor, 0.0f, 90.0f, 0.0f);
-		k_msleep(1000);
-		motor_set_mit(motor, 0.0f, -90.0f, 0.0f);
-		k_msleep(1000);
-		// 速度环测试
+		k_msleep(2000);
+		// // 速度环测试
 		pid_params.k_p = 0.0f;
 		pid_set_params(pid_controller, &pid_params);
 		motor_set_mit(motor, 100.0f, 0.0f, 0.0f);
