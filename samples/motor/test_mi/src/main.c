@@ -17,27 +17,16 @@
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
-#define G 9.80665f
-
-#define HIGH_BYTE(x)           ((x) >> 8)
-#define LOW_BYTE(x)            ((x) & 0xFF)
-#define COMBINE_HL8(HIGH, LOW) ((HIGH << 8) + LOW)
-
 #define MOTOR1_NODE DT_INST(0, mi_motor)
-
 const struct device *motor1 = DEVICE_DT_GET(MOTOR1_NODE);
 
-#define CPU_NODE DT_NODELABEL(cpu0)
-
-const struct device *cpu_dev = DEVICE_DT_GET(CPU_NODE);
-
-k_tid_t feedback_tid = 0;
-
 float motor1_rpm = 0;
-float motor2_rpm = 0;
 
 /* CAN Feedback to console*/
+k_tid_t feedback_tid = 0;
+
 K_THREAD_STACK_DEFINE(feedback_stack_area, 4096); // 定义线程栈
+
 void console_feedback(void *arg1, void *arg2, void *arg3)
 {
 
@@ -50,10 +39,8 @@ void console_feedback(void *arg1, void *arg2, void *arg3)
 
 int main(void)
 {
-	// board_init();
-	LOG_INF("yes");
-	k_sleep(K_MSEC(550));
-	// motor_control(motor1, ENABLE_MOTOR);
+	motor_control(motor1, ENABLE_MOTOR);
+	k_sleep(K_MSEC(500));
 
 	motor_set_mode(motor1, MIT);
 	/* Start Feedback thread*/
@@ -62,13 +49,13 @@ int main(void)
 				       feedback_stack_area, // 修改为 can_send_stack_area
 				       K_THREAD_STACK_SIZEOF(feedback_stack_area), console_feedback,
 				       (void *)motor1, NULL, NULL, 0, 0, K_MSEC(300));
-	motor_control(motor1, SET_ZERO_OFFSET);
+					   
+	motor_control(motor1, SET_ZERO);
 	while (1) {
 
-		motor_set_speed(motor1, 10);
-		motor_set_torque(motor1, 0.3);
-		motor_set_angle(motor1, 80);
-
+		motor_set_mit(motor1, 10, 80, 0.3);
+		k_msleep(500);
+		motor_set_mit(motor1, 0, 0, 0);
 		k_msleep(500);
 	}
 }

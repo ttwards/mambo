@@ -8,7 +8,7 @@
             tx_id = <0x01>;
 			gear_ratio = "7.75";
 			status = "okay";
-			can_channel = <&canbus1>;
+			can_channel = <&can1>;
 			controllers = <&mit_pid_1 &angle_pid_1 &speed_pid_1>;
 			capabilities = "mit","pv", "vo";
 		};

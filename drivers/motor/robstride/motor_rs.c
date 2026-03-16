@@ -16,13 +16,11 @@
 
 LOG_MODULE_REGISTER(motor_rs, CONFIG_MOTOR_LOG_LEVEL);
 
-struct k_sem tx_frame_sem;
-
 static float uint16_to_float(uint16_t x, float x_min, float x_max, int bits)
 {
-	uint32_t span = (1 << bits) - 1;
-	float offset = x_max - x_min;
-	return offset * x / span + x_min;
+	float span = x_max - x_min;
+	float offset = x_min;
+	return (span * (float)x / (float)((1 << bits) - 1)) + offset;
 }
 int float_to_uint(float x, float x_min, float x_max, int bits)
 {
@@ -48,7 +46,7 @@ int rs_init(const struct device *dev)
 		LOG_ERR("CAN device not ready");
 		return -1;
 	}
-
+	k_work_schedule(&rs_rx_monitor_work, K_MSEC(1000));
 	struct can_filter filter = {0};
 	filter.flags = CAN_FILTER_IDE;
 	filter.mask = CAN_FILTER_MASK;
@@ -84,18 +82,22 @@ void rs_motor_control(const struct device *dev, enum motor_cmd cmd)
 	};
 	switch (cmd) {
 	case ENABLE_MOTOR:
+		id.msg_type = Communication_Type_MotorStop;
+		frame.id = *(uint32_t *)&id;
+		frame.data[0] = 0x01;
+		can_send_queued(cfg->common.phy, &frame);
+		//clear error before enabling
 		id.msg_type = Communication_Type_MotorEnable;
 		frame.id = *(uint32_t *)&id;
+		frame.data[0] = 0x0;
 		can_send_queued(cfg->common.phy, &frame);
 		data->online = true;
 		data->enabled = true;
-		motor_report(dev);
 		break;
 	case DISABLE_MOTOR:
 		id.msg_type = Communication_Type_MotorStop;
 		frame.id = *(uint32_t *)&id;
 		can_send_queued(cfg->common.phy, &frame);
-		data->online = false;
 		data->enabled = false;
 		break;
 	case SET_ZERO:
@@ -105,19 +107,43 @@ void rs_motor_control(const struct device *dev, enum motor_cmd cmd)
 		data->common.angle = 0;
 		can_send_queued(cfg->common.phy, &frame);
 		break;
-
-	case CLEAR_PID:
-
-		break;
 	case CLEAR_ERROR:
 		id.msg_type = Communication_Type_MotorStop;
 		frame.id = *(uint32_t *)&id;
 		frame.data[0] = 0x01;
 		can_send_queued(cfg->common.phy, &frame);
-		data->online = false;
 		data->enabled = false;
 		break;
+	case AUTO_REPORT_ENABLE:
+		id.msg_type = Communication_Type_MotorReport;
+		frame.data[0] = 0x01;
+		frame.data[1] = 0x02;
+		frame.data[2] = 0x03;
+		frame.data[3] = 0x04;
+		frame.data[4] = 0x05;
+		frame.data[5] = 0x06;
+		frame.data[6] = 0x01;
+		frame.data[7] = 0x00;
+		frame.id = *(uint32_t *)&id;
+		can_send_queued(cfg->common.phy, &frame);
+		data->reporting = true;
+		break;
+	case AUTO_REPORT_DISABLE:
+		id.msg_type = Communication_Type_MotorReport;
+		frame.data[0] = 0x01;
+		frame.data[1] = 0x02;
+		frame.data[2] = 0x03;
+		frame.data[3] = 0x04;
+		frame.data[4] = 0x05;
+		frame.data[5] = 0x06;
+		frame.data[6] = 0x00;
+		frame.data[7] = 0x00;
+		frame.id = *(uint32_t *)&id;
+		can_send_queued(cfg->common.phy, &frame);
+		data->reporting = false;
+		break;
 	}
+	data->missed_times++;
 }
 
 static void rs_motor_pack(const struct device *dev, struct can_frame *frame)
@@ -149,8 +175,9 @@ static void rs_motor_pack(const struct device *dev, struct can_frame *frame)
 		vel_tmp = float_to_uint(data->target_radps, -cfg->v_max, cfg->v_max, 16);
 		kp_tmp = float_to_uint(data->params.k_p, KP_MIN, KP_MAX, 16);
 		kd_tmp = float_to_uint(data->params.k_d, KD_MIN, KD_MAX, 16);
-		tor_tmp = float_to_uint(data->target_torque, 0, cfg->t_max, 16);
-		rs_can_id->reserved = tor_tmp;
+		tor_tmp = float_to_uint(data->target_torque, -cfg->t_max, cfg->t_max, 16);
+		rs_can_id->master_id = tor_tmp & 0xFF; 
+		rs_can_id->reserved = (tor_tmp >> 8) & 0xFF;
 		frame->data[0] = (pos_tmp >> 8) & 0xFF;
 		frame->data[1] = pos_tmp & 0xFF;
 		frame->data[2] = (vel_tmp >> 8) & 0xFF;
@@ -234,15 +261,56 @@ static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	struct rs_can_id *can_id = (struct rs_can_id *)&(frame->id);
 	if (can_id->msg_type == Communication_Type_MotorFeedback ||
 	    can_id->msg_type == Communication_Type_MotorReport) {
+		if(!data->online){
+			data->online = true;
+		}
+		data->missed_times = 0;
+		data->last_report_time = k_uptime_get_32();
 		data->err = (can_id->reserved) & 0x3f;
 		if (data->err && error_fb_cnt++ % 100 == 0) {
-			LOG_ERR("Error code: %d on motor %s", data->err, dev->name);
+			if (data->err & 0x01) {
+				LOG_ERR("Insufficient voltage on motor %s", dev->name);
+			}
+			if (data->err & 0x02) {
+				LOG_ERR("Three-phase current fault on motor %s", dev->name);
+			}
+			if (data->err & 0x04) {
+				LOG_ERR("Overheat on motor %s", dev->name);
+			}
+			if (data->err & 0x08) {
+				LOG_ERR("Magnetic encoder fault on motor %s", dev->name);
+			}
+			if (data->err & 0x10) {
+				LOG_ERR("Motor blocked on motor %s", dev->name);
+			}
+			if (data->err & 0x20) {
+				LOG_ERR("Motor %s is not calibrated", dev->name);
+			}
 		}
 		data->RAWangle = (frame->data[0] << 8) | (frame->data[1]);
 		data->RAWrpm = (frame->data[2] << 8) | (frame->data[3]);
 		data->RAWtorque = (frame->data[4] << 8) | (frame->data[5]);
 		data->RAWtemp = (frame->data[6] << 8) | (frame->data[7]);
 	}
+}
+
+void rs_rx_monitor_handler(struct k_work *work)
+{
+	uint32_t current_time = k_uptime_get_32();
+
+    for (int i = 0; i < MOTOR_COUNT; i++) {
+        struct rs_motor_data *data = (struct rs_motor_data *)(motor_devices[i]->data);
+
+        if (data->online && data->reporting) {
+            uint32_t time_diff = current_time - data->last_report_time;
+            if (time_diff > 500) {
+                data->online = false;
+                LOG_ERR("Motor with CAN ID %s is offline!", motor_devices[i]->name);
+            }
+        }
+	}
+	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+    k_work_reschedule(dwork, K_MSEC(100));
 }
 
 int rs_get(const struct device *dev, motor_status_t *status)
@@ -252,6 +320,9 @@ int rs_get(const struct device *dev, motor_status_t *status)
 
 	// LOG_INF("raw angle: %d, raw rpm: %d, raw torque: %d, raw temp: %d",data->RAWangle,
 	// data->RAWrpm, data->RAWtorque, data->RAWtemp);
+	if (!data->online || !data->reporting) {
+		return -ENODEV;
+	}
 
 	data->common.angle = RAD2DEG * uint16_to_float(data->RAWangle, (double)-cfg->p_max,
 						       (double)cfg->p_max, 16);
@@ -261,7 +332,8 @@ int rs_get(const struct device *dev, motor_status_t *status)
 		uint16_to_float(data->RAWtorque, (double)-cfg->t_max, (double)cfg->t_max, 16);
 	data->common.temperature = ((float)(data->RAWtemp)) / 10.0f;
 
-	status->angle = fmodf(data->common.angle, 360.0f);
+	// status->angle = fmodf(data->common.angle, 360.0f);
+	status->angle = data->common.angle;
 	status->rpm = data->common.rpm;
 	status->torque = data->common.torque;
 	status->temperature = data->common.temperature;
@@ -354,6 +426,11 @@ int rs_set(const struct device *dev, motor_status_t *status)
 	struct can_frame frame = {0};
 	rs_motor_pack(dev, &frame);
 	can_send_queued(cfg->common.phy, &frame);
+	data->missed_times++;
+	if (data->missed_times > 3) {
+		data->online = false;
+		LOG_ERR("Motor %s is not responding", dev->name);
+	}
 	// else{
 	// 	LOG_ERR("Unsupported motor mode: %d", status->mode);
 	// 	return -ENOSYS;
@@ -368,38 +445,6 @@ int rs_set(const struct device *dev, motor_status_t *status)
 	} else {
 		return 0; // No mode change, no need to set
 	}
-}
-
-/**
- * @brief Motor status actively report enable function
- * @param dev Pointer to the motor device structure
- */
-void motor_report(const struct device *dev)
-{
-	struct rs_motor_data *data = dev->data;
-	const struct rs_motor_cfg *cfg = dev->config;
-	struct rs_can_id id = {
-		.master_id = cfg->common.rx_id,
-		.motor_id = cfg->common.tx_id,
-		.reserved = 0,
-	};
-	struct can_frame frame = {
-		.data = {0},
-		.dlc = 8,
-		.flags = CAN_FRAME_IDE,
-	};
-	frame.data[0] = 0x01;
-	frame.data[1] = 0x02;
-	frame.data[2] = 0x03;
-	frame.data[3] = 0x04;
-	frame.data[4] = 0x05;
-	frame.data[5] = 0x06;
-	frame.data[6] = 0x01;
-	frame.data[7] = 0x00;
-	id.msg_type = Communication_Type_MotorReport;
-	frame.id = *(uint32_t *)&id;
-
-	can_send_queued(cfg->common.phy, &frame);
 }
 
 DT_INST_FOREACH_STATUS_OKAY(RS_MOTOR_INST)
