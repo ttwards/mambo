@@ -97,6 +97,9 @@ jobs:
   pr-comment:
     name: PR 自动评论
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
     if: github.event.action == 'opened'
     steps:
       - name: 添加欢迎评论
@@ -104,9 +107,24 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '👋 感谢您的贡献！\n\n请确保：\n- ✅ 代码通过所有 CI 检查\n- ✅ 遵循项目编码规范\n- ✅ 添加必要的文档说明\n- ✅ 在实际硬件上测试（如果适用）\n\n详细的贡献指南请参考 [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md)'
-            })
+            const { context } = require('@actions/github');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const body = [
+              "👋 感谢您的贡献！",
+              "",
+              "请确保：",
+              "- ✅ 代码通过所有 CI 检查",
+              "- ✅ 遵循项目编码规范",
+              "- ✅ 添加必要的文档说明",
+              "- ✅ 在实际硬件上测试（如果适用）",
+              "",
+              "详细的贡献指南请参考 [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md)"
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body
+            });
