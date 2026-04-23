@@ -74,7 +74,7 @@ int can_send_queued(const struct device *can_dev, struct can_frame *frame)
 			       &tx_queue_sem[get_can_id(can_dev)]);
 		// LOG_ERR("Send CAN frame: %d", err);
 		if (err) {
-			LOG_ERR("TX queue full, will be put into msgq: %d", err);
+			// LOG_ERR("TX queue full, will be put into msgq: %d", err);
 		}
 	} else if (err < 0) {
 		// LOG_ERR("CAN hardware TX queue is full. (err %d)", err);
@@ -104,13 +104,13 @@ void can_tx_entry(void *arg1, void *arg2, void *arg3)
 			err = can_send(frame.can_dev, &(frame.frame), K_USEC(100), can_tx_callback,
 				       frame.sem);
 			if (err && k_uptime_get() - last_time > 400) {
-				LOG_ERR("Failed to send CAN frame: %d", err);
+				// LOG_ERR("Failed to send CAN frame: %d", err);
 				last_time = k_uptime_get();
 			}
 		} else {
 			if (failed_times > 127) {
 				k_msgq_purge(&can_tx_msgq);
-				LOG_ERR("Failed too many times, purge msgq");
+				// LOG_ERR("Failed too many times, purge msgq");
 				k_sem_give(frame.sem);
 				failed_times = 0;
 				continue;

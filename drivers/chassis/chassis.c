@@ -57,7 +57,7 @@ int cchassis_init(const struct device *dev)
 	// 		K_THREAD_STACK_SIZEOF(chassis_stack_area), chassis_thread, (void *)dev,
 	// 		NULL, NULL, -2, 0, K_NO_WAIT);
 	k_timer_user_data_set(&chassis_timer, (void *)dev);
-	k_timer_start(&chassis_timer, K_MSEC(100), K_MSEC(1));
+	k_timer_start(&chassis_timer, K_MSEC(100), K_MSEC(8));
 	return 0;
 }
 
@@ -105,8 +105,9 @@ void cchassis_resolve(chassis_data_t *data, const chassis_cfg_t *cfg)
 	// data->targetRollSpeed = 0;
 
 	for (int idx = 0; idx < CHASSIS_WHEEL_COUNT; idx++) {
-		float rollSpeedX = cfg->pos_Y_offset[idx] * data->set_status.gyro;
-		float rollSpeedY = -cfg->pos_X_offset[idx] * data->set_status.gyro;
+
+		float rollSpeedX = -cfg->pos_Y_offset[idx] * data->set_status.gyro;
+		float rollSpeedY = cfg->pos_X_offset[idx] * data->set_status.gyro;
 		float speedX, speedY;
 		if (data->static_angle &&
 		    (data->set_status.speedX * data->set_status.speedX +
@@ -137,6 +138,7 @@ void cchassis_resolve(chassis_data_t *data, const chassis_cfg_t *cfg)
 		steerwheel_angle = -RAD2DEG(steerwheel_angle) + 90.0f;
 
 		wheel_set_speed(cfg->wheels[idx], steerwheel_speed, steerwheel_angle);
+		k_sleep(K_USEC(130));
 	}
 }
 
@@ -172,7 +174,7 @@ void chassis_thread_entry(void *arg1, void *arg2, void *arg3)
 	}
 
 	while (1) {
-		k_sem_take(&chassis_sem, K_MSEC(1));
+		k_sem_take(&chassis_sem, K_MSEC(5));
 		data->prevTime = data->currTime;
 		data->currTime = k_cycle_get_32();
 
