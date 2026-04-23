@@ -1,0 +1,36 @@
+&spi2 {
+	status = "okay";
+	dmas = <&dma1 3 0 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH) 0>,
+	       <&dma1 4 0 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH) 0>;
+	dma-names = "rx", "tx";
+	pinctrl-0 = <&spi2_mosi_pb15
+		     &spi2_miso_pb14
+		     &spi2_sck_pb13
+		     &spi2_nss_pb12>;
+	pinctrl-names = "default";
+
+	virtual_can_host: spi_can@0 {
+		compatible = "custom,spi-can-mfd";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		can-core-clock = <42000000>;
+		int-gpios = <&gpiob 8 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		status = "okay";
+
+		can_v0: can_0 {
+			compatible = "custom,spi-can-node";
+			status = "okay";
+			can-channel = <0>;
+			bitrate = <1000000>;
+			sample-point = <875>;
+		};
+
+		can_v1: can_1 {
+			compatible = "custom,spi-can-node";
+			status = "okay";
+			can-channel = <1>;
+			bitrate = <1000000>;
+			sample-point = <875>;
+		};
+	};
+};
