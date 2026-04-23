@@ -50,7 +50,7 @@ K_THREAD_DEFINE(motor_monitor, 1024, motor_monitor_thread, NULL, NULL, NULL, 5, 
 int main(void)
 {
 	LOG_INF("=== 达妙DM电机控制示例 - 简化版 ===");
-	LOG_INF("上电直接设置转速100 RPM");
+
 
 	// 检查电机设备是否就绪
 	if (!device_is_ready(dm_motor)) {
@@ -58,21 +58,27 @@ int main(void)
 		return -ENODEV;
 	}
 
-	// 启用电机
+
+	// motor_control(dm_motor, SET_ZERO);
 	motor_control(dm_motor, ENABLE_MOTOR);
 	LOG_INF("电机已启用");
-	motor_set_mode(dm_motor, VO);
-	// 等待电机初始化完成
+	motor_set_mode(dm_motor, MIT);
+
 	k_msleep(1000);
 
-	// 设置电机转速为100 RPM
-	motor_set_vo(dm_motor, 100.0f);
-	k_msleep(500);
-	motor_set_vo(dm_motor, 200.0f);
-	LOG_INF("电机转速已设置为100 RPM");
 
-	// 主循环 - 保持程序运行
+	motor_set_mit(dm_motor, 10.0f,720.0f,0.0);
+	k_msleep(500);
+
+
+
+
 	while (1) {
+		// motor_set_mit(dm_motor, 10.0f,90.0f,0.0);
+		// k_msleep(1000);
+		// motor_set_mit(dm_motor, 10.0f,180.0f,0.0);
+		// k_msleep(1000);
+		// motor_set_mit(dm_motor, 10.0f,360.0f,0.0);
 		k_msleep(1000);
 		// motor_set_speed(dm_motor, 200.0f);
 	}

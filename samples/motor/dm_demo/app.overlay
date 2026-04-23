@@ -3,19 +3,20 @@
 		dm_motor: dm_motor{
 			compatible = "dm,motor";
 			id = <1>;
-			rx_id = <0x1A>;
-			tx_id = <0x0A>;
+			rx_id = <0x00>;
+			tx_id = <0x01>;
 			v_max = "785";
 			status = "okay";
 			can_channel = <&can1>;
-			controllers = <&vo>;
-			capabilities = "vo";
+			controllers = <&mit>;
+			capabilities = "mit";
 			t_max = "5";
 			freq = <1000>;
 		};
 	};
-	vo: vo{
+	mit: mit{
 		compatible = "pid,single";
-		k_p = "0.00251";
+		k_p = "2";
+		k_d = "0.5";
 	};
 };
