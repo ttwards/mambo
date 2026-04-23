@@ -25,6 +25,8 @@ properties:
     type: boolean
   inverse-wheel:
     type: boolean
+  multi_turn:
+    type: boolean
 
 wheel-cells:
   - offset_x
