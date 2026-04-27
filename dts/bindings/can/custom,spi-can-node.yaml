@@ -1,0 +1,17 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: CAN controller channel hosted by a custom SPI virtual CAN bridge
+
+compatible: "custom,spi-can-node"
+
+include: [can-controller.yaml]
+
+properties:
+  can-channel:
+    type: int
+    required: true
+    enum:
+      - 0
+      - 1
+    description: Remote CAN channel index on the parent SPI bridge.

@@ -17,3 +17,5 @@ add_subdirectory_ifdef(CONFIG_CHASSIS chassis)
 add_subdirectory_ifdef(CONFIG_WHEEL wheel)
 
 add_subdirectory_ifdef(CONFIG_SENSOR sensor)
+
+add_subdirectory_ifdef(CONFIG_VCAN vcan)

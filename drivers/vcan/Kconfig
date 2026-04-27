@@ -1,0 +1,73 @@
+menuconfig VCAN
+    bool "Virtual dual-channel CAN over SPI"
+    default y
+    depends on CAN && SPI && GPIO
+    depends on DT_HAS_CUSTOM_SPI_CAN_MFD_ENABLED
+    help
+      Enable the SPI-hosted virtual CAN bridge driver. The bridge exposes two
+      child CAN devices backed by a remote target connected over SPI.
+      The host-side SPI timing follows the local src/master example:
+      8-bit words, MSB first, CPHA, master mode, and manual CS toggling.
+      For higher throughput, enable DMA in the board/app config; on STM32
+      targets also enable the controller interrupt path such as
+      CONFIG_SPI_STM32_INTERRUPT when available.
+
+if VCAN
+
+config VCAN_MAX_RX_FILTER
+    int "Maximum software RX filters per virtual CAN node"
+    default 16
+    range 1 64
+    help
+      Number of local software RX filters supported by each hosted CAN
+      channel.
+
+config VCAN_TX_QUEUE_DEPTH
+    int "VCAN per-channel TX queue depth"
+    default 32
+    range 4 256
+    help
+      Number of host-side CAN frames buffered per virtual channel before
+      backpressure is applied to callers of can_send(). Keeping this bounded
+      ensures the driver degrades via queue backpressure instead of unbounded
+      memory growth when the remote link or CAN bus is saturated.
+
+config VCAN_MAX_SERVICE_BATCH
+    int "Maximum SPI sync transfers processed per wake"
+    default 8
+    range 1 64
+    help
+      Upper bound on back-to-back SPI sync transactions handled by the VCAN
+      poll thread before it yields. This prevents VCAN from monopolizing CPU
+      time under sustained load while still allowing the pending queues to
+      drain over subsequent wakeups.
+
+config VCAN_WORKQ_STACK_SIZE
+    int "VCAN poll thread stack size"
+    default 1536
+    range 512 8192
+    help
+      Stack size used by the parent SPI bridge polling thread. The thread runs
+      every 500 us and performs a SPI sync transfer only when there are local
+      TX/control updates pending or the slave INT line is asserted.
+
+config VCAN_WORKQ_PRIORITY
+    int "VCAN poll thread priority"
+    default 0
+    help
+      Priority for the parent SPI bridge polling thread.
+
+config VCAN_INIT_PRIORITY
+    int "VCAN parent init priority"
+    default CAN_INIT_PRIORITY
+    help
+      Initialization priority for the SPI bridge parent device.
+
+config VCAN_NODE_INIT_PRIORITY
+    int "VCAN child init priority"
+    default 81
+    help
+      Initialization priority for the hosted CAN child devices. This should be
+      higher than the parent SPI bridge priority so the parent is ready first.
+
+endif # VCAN

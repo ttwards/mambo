@@ -1,0 +1,42 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: Virtual dual-channel CAN host controller over SPI
+
+compatible: "custom,spi-can-mfd"
+
+include: [spi-device.yaml]
+
+properties:
+  can-core-clock:
+    type: int
+    required: true
+    description: |
+      Remote CAN controller core clock in Hz. The host uses this value when
+      converting Zephyr CAN timing requests into a target bitrate that the
+      slave recomputes locally.
+
+  int-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Interrupt line asserted by the remote target to notify the host that one
+      of the hosted CAN channels has pending RX data or a state change.
+
+  host-int-gpios:
+    type: phandle-array
+    description: |
+      Optional legacy reverse hint line. The current host driver uses a fixed
+      2 kHz polling loop and does not require this signal to function.
+
+child-binding:
+  description: Hosted CAN controller channel exposed by the SPI bridge.
+
+  properties:
+    can-channel:
+      type: int
+      required: true
+      enum:
+        - 0
+        - 1
+      description: Remote CAN channel index on the target board.

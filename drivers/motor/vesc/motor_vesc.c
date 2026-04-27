@@ -63,10 +63,6 @@ const struct motor_driver_api vesc_motor_api = {
 void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
 {
 	struct vesc_motor_data *data = dev->data;
-	const struct vesc_motor_config *cfg = dev->config;
-	struct vesc_can_id id = {
-		.motor_id = cfg->common.id,
-	};
 	switch (cmd) {
 	case ENABLE_MOTOR:
 		data->enable = true;
@@ -78,6 +74,8 @@ void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
 		break;
 	case CLEAR_ERROR:
 		break;
+	case CLEAR_PID:
+		break;
 	}
 }
 
@@ -88,35 +86,28 @@ void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
  */
 static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 {
-	int32_t pos_tmp, vel_tmp, kp_tmp, kd_tmp, cur_tmp;
+	int32_t pos_tmp, vel_tmp, cur_tmp;
 
 	struct vesc_motor_data *data = (struct vesc_motor_data *)(dev->data);
-	struct vesc_motor_config *cfg = (struct vesc_motor_config *)(dev->config);
+	const struct vesc_motor_config *cfg = (const struct vesc_motor_config *)(dev->config);
 	struct vesc_can_id *vesc_can_id = (struct vesc_can_id *)&(frame->id);
 
 	vesc_can_id->motor_id = cfg->common.id;
 
 	frame->dlc = 8;
-	frame->flags = 0;
-
-	struct can_frame *frame_follow = &frame[1];
 	frame->flags = CAN_FRAME_IDE;
-	frame_follow->flags = CAN_FRAME_IDE;
-	// vesc_can_id *vesc_can_id_fol = (vesc_can_id *)&(frame_follow->id);
-	// uint16_t index[2];
-	// vesc_can_id_fol->motor_id = id.motor_id;
 	if (data->enable == true) {
 		switch (data->common.mode) {
 		case ML_TORQUE:
 			vesc_can_id->msg_type = CAN_PACKET_SET_CURRENT;
 			if (data->target_current > cfg->i_max) {
 				LOG_ERR("vesc_motor_pack: target_current %f exceeds i_max %f",
-					data->target_current, cfg->i_max);
+					(double)data->target_current, (double)cfg->i_max);
 				cur_tmp = cfg->i_max * 1000; // mA
 			} else if (data->target_current < -cfg->i_max) {
 				LOG_ERR("vesc_motor_pack: target_current %f exceeds negative i_max "
 					"%f",
-					data->target_current, -cfg->i_max);
+					(double)data->target_current, (double)(-cfg->i_max));
 				cur_tmp = -cfg->i_max * 1000; // mA
 			} else {
 				cur_tmp = (int32_t)(data->target_current * 1000); // mA
@@ -129,16 +120,16 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 		case ML_SPEED:
 			vesc_can_id->msg_type = CAN_PACKET_SET_RPM;
 			if (data->target_radps > cfg->v_max) {
-				LOG_ERR("vesc_motor_pack: target_radps %f exceeds v_max %f",
-					data->target_radps, cfg->v_max);
-				vel_tmp = cfg->v_max * RADPS2RPM;
+				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds v_max %f",
+				// 	data->target_radps, cfg->v_max);
+				vel_tmp = cfg->v_max * VESC_RPM_PER_RADPS;
 			} else if (data->target_radps < -cfg->v_max) {
-				LOG_ERR("vesc_motor_pack: target_radps %f exceeds negative v_max "
-					"%f",
-					data->target_radps, -cfg->v_max);
-				vel_tmp = -cfg->v_max * RADPS2RPM;
+				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds negative v_max "
+				// 	"%f",
+					// data->target_radps, -cfg->v_max);
+				vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
 			} else {
-				vel_tmp = (int32_t)(data->target_radps * RADPS2RPM);
+				vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
 			}
 			vel_tmp = vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
 			frame->data[0] = (vel_tmp >> 24) & 0xFF;
@@ -148,16 +139,16 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 			break;
 		case ML_ANGLE:
 			vesc_can_id->msg_type = CAN_PACKET_SET_POS;
-			if (data->target_angle > (cfg->p_max * DEG2RAD)) {
+			if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
 				LOG_ERR("vesc_motor_pack: target_angle %f exceeds 360 degree",
-					data->target_angle * RAD2DEG);
-				data->target_angle = cfg->p_max * DEG2RAD;
-			} else if (data->target_angle < (-cfg->p_max * DEG2RAD)) {
+					(double)(data->target_angle * VESC_DEG_PER_RAD));
+				data->target_angle = cfg->p_max * VESC_RAD_PER_DEG;
+			} else if (data->target_angle < (-cfg->p_max * VESC_RAD_PER_DEG)) {
 				LOG_ERR("vesc_motor_pack: target_angle %f less than 0 degree",
-					data->target_angle * RAD2DEG);
-				data->target_angle = -cfg->p_max * DEG2RAD;
+					(double)(data->target_angle * VESC_DEG_PER_RAD));
+				data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
 			}
-			pos_tmp = data->target_angle * DEG2RAD * cfg->gear_ratio;
+			pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
 			frame->data[0] = (pos_tmp >> 24) & 0xFF;
 			frame->data[1] = (pos_tmp >> 16) & 0xFF;
 			frame->data[2] = (pos_tmp >> 8) & 0xFF;
@@ -175,11 +166,10 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
  * @param mode Desired motor mode
  * @return 0 on success, negative error code on failure
  */
-int vesc_motor_set_mode(const struct device *dev, enum motor_mode mode)
+void vesc_motor_set_mode(const struct device *dev, enum motor_mode mode)
 {
 	struct vesc_motor_data *data = dev->data;
 	data->common.mode = mode;
-	return 0;
 }
 
 /**
@@ -190,7 +180,7 @@ int vesc_motor_set_mode(const struct device *dev, enum motor_mode mode)
 int vesc_set_torque(const struct device *dev, float torque)
 {
 	struct vesc_motor_data *data = dev->data;
-	struct vesc_motor_config *cfg = dev->config;
+	const struct vesc_motor_config *cfg = dev->config;
 	data->target_current = torque / cfg->kt; // A
 	return 0;
 }
@@ -203,7 +193,7 @@ int vesc_set_torque(const struct device *dev, float torque)
 int vesc_set_speed(const struct device *dev, float speed)
 {
 	struct vesc_motor_data *data = dev->data;
-	data->target_radps = speed * RPM2RADPS;
+	data->target_radps = speed * VESC_RADPS_PER_RPM;
 	return 0;
 }
 
@@ -215,7 +205,7 @@ int vesc_set_speed(const struct device *dev, float speed)
 int vesc_set_angle(const struct device *dev, float angle)
 {
 	struct vesc_motor_data *data = dev->data;
-	data->target_angle = angle * DEG2RAD;
+	data->target_angle = angle * VESC_RAD_PER_DEG;
 	return 0;
 }
 
@@ -242,20 +232,13 @@ int vesc_set(const struct device *dev, motor_status_t *status)
 		return -ENOSYS;
 	}
 
+	if (status->mode != data->common.mode) {
+		vesc_motor_set_mode(dev, status->mode);
+	}
+
 	struct can_frame frame = {0};
 	vesc_motor_pack(dev, &frame);
 	can_send_queued(cfg->common.phy, &frame);
-
-	if (status->mode != data->common.mode) {
-		// LOG_DBG("rs_set: mode changed from %d to %d", data->common.mode, status->mode);
-		data->common.mode = status->mode;
-		if (vesc_motor_set_mode(dev, status->mode) < 0) {
-			LOG_ERR("Failed to set motor mode");
-			return -EIO;
-		}
-	} else {
-		return 0; // No mode change, no need to set
-	}
 
 	return 0;
 }

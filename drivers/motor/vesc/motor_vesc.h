@@ -15,12 +15,11 @@
 
 #define DT_DRV_COMPAT vesc_motor
 
-#define PI 3.14159265f
-
-#define RAD2DEG   180.0f / PI
-#define DEG2RAD   PI / 180.0f
-#define RADPS2RPM 60.0f / (2 * PI)
-#define RPM2RADPS (2 * PI) / 60.0f
+#define VESC_PI             3.14159265f
+#define VESC_DEG_PER_RAD    (180.0f / VESC_PI)
+#define VESC_RAD_PER_DEG    (VESC_PI / 180.0f)
+#define VESC_RPM_PER_RADPS  (60.0f / (2.0f * VESC_PI))
+#define VESC_RADPS_PER_RPM  ((2.0f * VESC_PI) / 60.0f)
 
 // 控制指令
 #define CAN_PACKET_SET_DUTY          0 // 设置占空比
@@ -82,7 +81,7 @@ struct vesc_motor_config {
 int vesc_set(const struct device *dev, motor_status_t *status);
 int vesc_get(const struct device *dev, motor_status_t *status);
 void vesc_motor_control(const struct device *dev, enum motor_cmd cmd);
-int vesc_motor_set_mode(const struct device *dev, enum motor_mode mode);
+void vesc_motor_set_mode(const struct device *dev, enum motor_mode mode);
 
 extern const struct motor_driver_api vesc_motor_api;
 
@@ -107,7 +106,7 @@ extern const struct motor_driver_api vesc_motor_api;
 			},                                                                         \
 		.kv = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), kv, 150.0f),                        \
 		.kt = 60.0f /                                                                      \
-		      (2.f * PI * (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), kv, 150)),       \
+		      (2.f * VESC_PI * (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), kv, 150)),  \
 		.pole_pairs = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), pole_pairs, 14),            \
 		.gear_ratio = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), gear_ratio, 1.0f),          \
 		.p_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 12.57f),                  \

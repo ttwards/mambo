@@ -76,7 +76,7 @@ int dm_init(const struct device *dev)
 	k_work_queue_init(&dm_work_queue);
 
 	dm_tx_timer.expiry_fn = dm_isr_init_handler;
-	k_timer_start(&dm_tx_timer, K_MSEC(500), K_MSEC(1));
+	k_timer_start(&dm_tx_timer, K_MSEC(500), K_MSEC(7));
 	k_timer_user_data_set(&dm_tx_timer, &dm_init_work);
 	return 0;
 }
@@ -176,7 +176,7 @@ int dm_get(const struct device *dev, motor_status_t *status)
 	struct dm_motor_data *data = dev->data;
 	const struct dm_motor_config *cfg = dev->config;
 
-	status->angle = fmodf(data->common.angle, 360.0f);
+	status->angle = data->common.angle;
 	status->rpm = data->common.rpm;
 	status->torque = data->common.torque;
 
@@ -204,7 +204,7 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 	data->update = true;
 
 	if (data->enable && !data->online) {
-		LOG_ERR("motor %s is back online", dev->name);
+		// LOG_ERR("motor %s is back online", dev->name);
 	}
 	data->online = true;
 
@@ -305,11 +305,11 @@ int dm_set(const struct device *dev, motor_status_t *status)
 	const struct dm_motor_config *cfg = dev->config;
 
 	if (status->mode == MIT) {
-		data->target_angle = RAD2DEG * status->angle;
+		data->target_angle = status->angle/(RAD2DEG);
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
-		data->params.k_p = 0;
-		data->params.k_d = 0;
+		// data->params.k_p = 0;
+		// data->params.k_d = 0;
 	} else if (status->mode == PV) {
 		data->target_angle = status->angle;
 		data->target_radps = RPM2RADPS(status->rpm);
@@ -394,11 +394,12 @@ void dm_tx_data_handler(struct k_work *work)
 		}
 		if (now - data->prev_recv_time > 10000 / cfg->freq && data->online &&
 		    data->enable) {
-			LOG_ERR("motor %s is not responding, setting it to offline",
-				motor_devices[i]->name);
+			// LOG_ERR("motor %s is not responding, setting it to offline",
+			// 	motor_devices[i]->name);
 			data->online = false;
 			data->enabled = false;
 		}
+		k_sleep(K_USEC(130));
 	}
 }
 
@@ -432,7 +433,7 @@ void dm_init_handler(struct k_work *work)
 		data->prev_recv_time = k_uptime_get();
 	}
 
-	k_timer_start(&dm_tx_timer, K_NO_WAIT, K_MSEC(1));
+	k_timer_start(&dm_tx_timer, K_NO_WAIT, K_MSEC(9));
 	k_timer_user_data_set(&dm_tx_timer, &dm_tx_data_handle);
 }
 
