@@ -26,6 +26,8 @@ properties:
   capabilities:
     type: string-array
     required: true
+  auto_report:
+    type: boolean
   v_max:
     type: string
   p_max:

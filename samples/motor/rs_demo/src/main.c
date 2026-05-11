@@ -26,19 +26,6 @@ const struct device *motor = DEVICE_DT_GET(MOTOR_NODE);
 #define PID_CONTROLLER DT_NODELABEL(mit_pid_1)
 const struct device *pid_controller = DEVICE_DT_GET(PID_CONTROLLER);
 
-// 测试序列状态
-typedef enum {
-	STATE_SET_ZERO_1 = 0, // 设置零点1
-	STATE_SPEED_TEST,     // 100rpm转10秒
-	STATE_STOP,           // 停下
-	STATE_SET_ZERO_2,     // 设置零点2
-	STATE_ANGLE_TEST,     // 正转180度
-	STATE_MAX
-} test_state_t;
-
-static test_state_t current_state = STATE_SET_ZERO_1;
-static uint32_t state_start_time = 0;
-
 /**
  * @brief 电机状态监控线程
  */
@@ -85,9 +72,6 @@ int main(void)
 	motor_control(motor, ENABLE_MOTOR);
 	k_msleep(100); // 等待电机使能
 
-	motor_control(motor, AUTO_REPORT_ENABLE);
-	k_msleep(100); // 等待自动报告使能
-
 	motor_control(motor, SET_ZERO);
 	k_msleep(100);
 
@@ -96,27 +80,20 @@ int main(void)
 	k_msleep(1000);
 	
 	
-	struct pid_config pid_params;
-	pid_get_params(pid_controller, &pid_params);
 	/* Start Feedback thread*/
 	while (1) {
 
-		// 重置PID参数
-		pid_params.k_p = 20.0f;
-		pid_params.k_d = 1.0f;
-		pid_set_params(pid_controller, &pid_params);
-		// 位置环测试
-		motor_set_mit(motor, 0.0f, -90.0f, 0.0f);
+		// 位置测试
+		motor_set_mit(motor, 0.0f, -30.0f, 0.0f);
 		k_msleep(2000);
 		motor_set_mit(motor, 0.0f, 0.0f, 0.0f);
 		k_msleep(2000);
-		motor_set_mit(motor, 0.0f, 90.0f, 0.0f);
+		motor_set_mit(motor, 0.0f, 30.0f, 0.0f);
 		k_msleep(2000);
-		// // 速度环测试
-		pid_params.k_p = 0.0f;
-		pid_set_params(pid_controller, &pid_params);
-		motor_set_mit(motor, 100.0f, 0.0f, 0.0f);
-		k_msleep(1000);
+
+		// // 速度测试
+		// motor_set_mit(motor, 100.0f, 0.0f, 0.0f);
+		// k_msleep(1000);
 		// 测试结束
 	}
 
