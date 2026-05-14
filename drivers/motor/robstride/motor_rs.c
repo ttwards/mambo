@@ -248,7 +248,7 @@ int rs_motor_set_mode(const struct device *dev, enum motor_mode mode)
 static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 			      void *user_data)
 {
-	int id = get_motor_id(frame);
+	uint32_t id = get_motor_id(frame);
 	if (id == -1) {
 		LOG_ERR("Unknown motor ID: %d", frame->id);
 		return;

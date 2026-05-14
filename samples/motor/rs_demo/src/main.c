@@ -23,9 +23,6 @@ LOG_MODULE_REGISTER(rs02_demo, LOG_LEVEL_INF);
 #define MOTOR_NODE DT_INST(0, rs_motor)
 const struct device *motor = DEVICE_DT_GET(MOTOR_NODE);
 
-#define PID_CONTROLLER DT_NODELABEL(mit_pid_1)
-const struct device *pid_controller = DEVICE_DT_GET(PID_CONTROLLER);
-
 /**
  * @brief 电机状态监控线程
  */
@@ -90,10 +87,6 @@ int main(void)
 		k_msleep(2000);
 		motor_set_mit(motor, 0.0f, 30.0f, 0.0f);
 		k_msleep(2000);
-
-		// // 速度测试
-		// motor_set_mit(motor, 100.0f, 0.0f, 0.0f);
-		// k_msleep(1000);
 		// 测试结束
 	}
 
