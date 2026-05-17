@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "rs_ratios.h"
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/motor.h>
@@ -10,9 +11,7 @@
 
 #define DT_DRV_COMPAT rs_motor
 
-#define KP_MAX 500.0f
 #define KP_MIN 0.0f
-#define KD_MAX 5.0f
 #define KD_MIN 0.0f
 
 // 控制命令宏定义
@@ -140,6 +139,8 @@ struct rs_motor_cfg {
 	float p_max;
 	float v_max;
 	float t_max;
+	float kp_max;
+	float kd_max;
 };
 
 struct k_work_q rs_work_queue;
@@ -168,6 +169,10 @@ K_WORK_DEFINE(rs_tx_data_handle, rs_tx_data_handler);
 
 K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
 
+#define RS_MOTOR_TYPE(inst) DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02)
+#define RS_MOTOR_PARAM_(type, field) type##_##field
+#define RS_MOTOR_PARAM(type, field)  RS_MOTOR_PARAM_(type, field)
+
 #define RS_MOTOR_DATA_INST(inst)                                                                   \
 	static struct rs_motor_data rs_motor_data_##inst = {                                       \
 		.common = MOTOR_DT_DRIVER_DATA_INST_GET(inst),                                     \
@@ -183,11 +188,13 @@ K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
 #define RS_MOTOR_CONFIG_INST(inst)                                                                 \
 	static const struct rs_motor_cfg rs_motor_cfg_##inst = {                                   \
 		.common = MOTOR_DT_DRIVER_CONFIG_INST_GET(inst),                                   \
-		.motor_type = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02),          \
+		.motor_type = RS_MOTOR_TYPE(inst),                                                 \
 		.auto_report = DT_PROP(DT_DRV_INST(inst), auto_report),                            \
-		.p_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 12.57f),                  \
-		.v_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 44.0f),                   \
-		.t_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), t_max, 17.0f),                   \
+		.p_max = RS_MOTOR_PARAM(RS_MOTOR_TYPE(inst), P_MAX),                               \
+		.v_max = RS_MOTOR_PARAM(RS_MOTOR_TYPE(inst), V_MAX),                               \
+		.t_max = RS_MOTOR_PARAM(RS_MOTOR_TYPE(inst), T_MAX),                               \
+		.kp_max = RS_MOTOR_PARAM(RS_MOTOR_TYPE(inst), KP_MAX),                             \
+		.kd_max = RS_MOTOR_PARAM(RS_MOTOR_TYPE(inst), KD_MAX),                             \
 	};
 
 #define MOTOR_DEVICE_DT_DEFINE(node_id, init_fn, pm, data, config, level, prio, api, ...)          \

@@ -10,9 +10,6 @@
             can_channel = <&can1>;
             controllers = <&mit_pid_1>;
             capabilities = "mit";
-            p_max = "12.57f";
-            v_max = "44.0f";
-            t_max = "17.0f";
         };
 
     };

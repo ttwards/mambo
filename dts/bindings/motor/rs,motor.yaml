@@ -30,7 +30,10 @@ properties:
     type: boolean
   v_max:
     type: string
+    required: false
   p_max:
     type: string
+    required: false
   t_max:
     type: string
+    required: false

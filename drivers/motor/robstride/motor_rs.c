@@ -179,8 +179,8 @@ static void rs_motor_pack(const struct device *dev, struct can_frame *frame)
 
 		pos_tmp = float_to_uint(data->target_pos, -cfg->p_max, cfg->p_max, 16);
 		vel_tmp = float_to_uint(data->target_radps, -cfg->v_max, cfg->v_max, 16);
-		kp_tmp = float_to_uint(data->params.k_p, KP_MIN, KP_MAX, 16);
-		kd_tmp = float_to_uint(data->params.k_d, KD_MIN, KD_MAX, 16);
+		kp_tmp = float_to_uint(data->params.k_p, KP_MIN, cfg->kp_max, 16);
+		kd_tmp = float_to_uint(data->params.k_d, KD_MIN, cfg->kd_max, 16);
 		tor_tmp = float_to_uint(data->target_torque, -cfg->t_max, cfg->t_max, 16);
 		rs_can_id->master_id = tor_tmp & 0xFF;
 		rs_can_id->reserved = (tor_tmp >> 8) & 0xFF;
