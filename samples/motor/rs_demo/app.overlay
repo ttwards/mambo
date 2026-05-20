@@ -3,7 +3,7 @@
         rs_motor: rs_motor {
             compatible = "rs,motor";
             id = <1>;
-            tx_id = <0x01>;
+            tx_id = <0x0F>;
             rx_id = <0xFD>;
             motor_type = "RS02";
             status = "okay";
