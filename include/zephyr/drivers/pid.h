@@ -88,71 +88,34 @@ STATIC_VOID pid_calc(struct pid_data *data)
 	if (deltaT == 0) {
 		return;
 	}
-	if (!pid_para->mit) {
-		if ((ki == ki) && !float_equal(ki, 0)) {
-			data->err_integral += (err * deltaT) / ki;
-			if (pid_para->integral_limit != 0) {
-				if (fabsf(data->err_integral) > pid_para->integral_limit) {
-					data->err_integral = data->err_integral > 0
-								     ? pid_para->integral_limit
-								     : -pid_para->integral_limit;
-				}
+	if ((ki == ki) && !float_equal(ki, 0)) {
+		data->err_integral += (err * deltaT) / ki;
+		if (pid_para->integral_limit != 0) {
+			if (fabsf(data->err_integral) > pid_para->integral_limit) {
+				data->err_integral = data->err_integral > 0
+							     ? pid_para->integral_limit
+							     : -pid_para->integral_limit;
 			}
 		}
-		if ((kd == kd)) {
-			if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
-				data->err_derivate =
-					kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT;
-			} else {
-				data->err_derivate =
-					pid_para->detri_lpf * data->err_derivate +
-					(1 - pid_para->detri_lpf) *
-						(kd * (*(data->detri_ref) - *(data->detri_curr)) /
-						 deltaT);
-			}
+	}
+	if ((kd == kd)) {
+		if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
+			data->err_derivate =
+				kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT;
+		} else {
+			data->err_derivate =
+				pid_para->detri_lpf * data->err_derivate +
+				(1 - pid_para->detri_lpf) *
+					(kd * (*(data->detri_ref) - *(data->detri_curr)) /
+					 deltaT);
 		}
-		//   LOG_INF("integral: %d, derivate: %d", to16t(ki * (err * deltaT) / 1000000),
-		//           to16t(kd * 1000000 * err / deltaT));
-		*(data->output) = kp * (err + data->err_integral + data->err_derivate) +
-				  pid_para->output_offset;
-		if (pid_para->output_limit != 0 &&
-		    fabsf(*(data->output)) > pid_para->output_limit) {
-			*(data->output) = *(data->output) > 0 ? pid_para->output_limit
-							      : -pid_para->output_limit;
-		}
-		return;
-	} else {
-		if ((ki == ki) && !float_equal(ki, 0)) {
-			data->err_integral += (err * deltaT) / ki;
-			if (pid_para->integral_limit != 0) {
-				if (fabsf(data->err_integral) > pid_para->integral_limit) {
-					data->err_integral = data->err_integral > 0
-								     ? pid_para->integral_limit
-								     : -pid_para->integral_limit;
-				}
-			}
-		}
-		if ((kd == kd)) {
-			if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
-				data->err_derivate =
-					kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT;
-			} else {
-				data->err_derivate =
-					pid_para->detri_lpf * data->err_derivate +
-					(1 - pid_para->detri_lpf) *
-						(kd * (*(data->detri_ref) - *(data->detri_curr)) /
-						 deltaT);
-			}
-		}
-
-		*(data->output) = kp * (err + data->err_integral + data->err_derivate) +
-				  pid_para->output_offset;
-		if (pid_para->output_limit != 0 &&
-		    fabsf(*(data->output)) > pid_para->output_limit) {
-			*(data->output) = *(data->output) > 0 ? pid_para->output_limit
-							      : -pid_para->output_limit;
-		}
-		return;
+	}
+	*(data->output) = kp * (err + data->err_integral + data->err_derivate) +
+			  pid_para->output_offset;
+	if (pid_para->output_limit != 0 &&
+	    fabsf(*(data->output)) > pid_para->output_limit) {
+		*(data->output) = *(data->output) > 0 ? pid_para->output_limit
+						      : -pid_para->output_limit;
 	}
 }
 
@@ -172,42 +135,92 @@ STATIC float pid_calc_in(struct pid_data *data, float error, float deltaT_us)
 		return 0;
 	}
 	float out;
-	if (!pid_para->mit) {
-		if ((ki == ki) && !float_equal(ki, 0)) {
-			data->err_integral += (error * deltaT_us) / ki;
-			if (pid_para->integral_limit != 0) {
-				if (fabsf(data->err_integral) > pid_para->integral_limit) {
-					data->err_integral = data->err_integral > 0
-								     ? pid_para->integral_limit
-								     : -pid_para->integral_limit;
-				}
+	if ((ki == ki) && !float_equal(ki, 0)) {
+		data->err_integral += (error * deltaT_us) / ki;
+		if (pid_para->integral_limit != 0) {
+			if (fabsf(data->err_integral) > pid_para->integral_limit) {
+				data->err_integral = data->err_integral > 0
+							     ? pid_para->integral_limit
+							     : -pid_para->integral_limit;
 			}
 		}
-		if ((kd == kd)) {
-			if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
-				data->err_derivate =
-					kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT_us;
-			} else {
-				data->err_derivate =
-					pid_para->detri_lpf * data->err_derivate +
-					(1 - pid_para->detri_lpf) *
-						(kd * (*(data->detri_ref) - *(data->detri_curr)) /
-						 deltaT_us);
-			}
-		}
-		//   LOG_INF("integral: %d, derivate: %d", to16t(ki * (err * deltaT) / 1000000),
-		//           to16t(kd * 1000000 * err / deltaT));
-		out = kp * (error + data->err_integral + data->err_derivate) +
-		      pid_para->output_offset;
-		if (pid_para->output_limit != 0 && fabsf(out) > pid_para->output_limit) {
-			out = out > 0 ? pid_para->output_limit : -pid_para->output_limit;
-		}
-		if (data->output != NULL) {
-			*(data->output) = out;
-		}
-		return out;
 	}
-	return NAN;
+	if ((kd == kd)) {
+		if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
+			data->err_derivate =
+				kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT_us;
+		} else {
+			data->err_derivate =
+				pid_para->detri_lpf * data->err_derivate +
+				(1 - pid_para->detri_lpf) *
+					(kd * (*(data->detri_ref) - *(data->detri_curr)) /
+					 deltaT_us);
+		}
+	}
+	out = kp * (error + data->err_integral + data->err_derivate) +
+	      pid_para->output_offset;
+	if (pid_para->output_limit != 0 && fabsf(out) > pid_para->output_limit) {
+		out = out > 0 ? pid_para->output_limit : -pid_para->output_limit;
+	}
+	if (data->output != NULL) {
+		*(data->output) = out;
+	}
+	return out;
+}
+
+/**
+ * @brief MIT 模式 PID 计算，直接传入位置误差和速度误差。
+ *
+ * @param data       PID 实例
+ * @param pos_error  位置误差 (target - actual)
+ * @param vel_error  速度误差 (target_vel - actual_vel)
+ * @param deltaT_us  时间步长，单位微秒
+ * @return 控制输出
+ */
+STATIC float pid_calc_mit(struct pid_data *data, float pos_error, float vel_error,
+			   float deltaT_us)
+{
+	const struct device *dev = data->pid_dev;
+	if (dev == NULL) {
+		return 0;
+	}
+	const struct pid_config *pid_para = dev->config;
+
+	float kp = pid_para->k_p;
+	float ki = pid_para->k_i;
+	float kd = pid_para->k_d;
+
+	if (deltaT_us == 0) {
+		return 0;
+	}
+	if ((ki == ki) && !float_equal(ki, 0)) {
+		data->err_integral += (pos_error * deltaT_us) / ki;
+		if (pid_para->integral_limit != 0) {
+			if (fabsf(data->err_integral) > pid_para->integral_limit) {
+				data->err_integral = data->err_integral > 0
+							     ? pid_para->integral_limit
+							     : -pid_para->integral_limit;
+			}
+		}
+	}
+	if ((kd == kd)) {
+		if ((pid_para->detri_lpf != pid_para->detri_lpf)) {
+			data->err_derivate = kd * vel_error / deltaT_us;
+		} else {
+			data->err_derivate =
+				pid_para->detri_lpf * data->err_derivate +
+				(1 - pid_para->detri_lpf) * (kd * vel_error / deltaT_us);
+		}
+	}
+	float out = kp * (pos_error + data->err_integral + data->err_derivate) +
+		    pid_para->output_offset;
+	if (pid_para->output_limit != 0 && fabsf(out) > pid_para->output_limit) {
+		out = out > 0 ? pid_para->output_limit : -pid_para->output_limit;
+	}
+	if (data->output != NULL) {
+		*(data->output) = out;
+	}
+	return out;
 }
 
 STATIC_VOID pid_reg_input(struct pid_data *data, float *curr, float *ref)
