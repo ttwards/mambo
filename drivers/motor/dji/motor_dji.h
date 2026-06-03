@@ -79,7 +79,8 @@ struct dji_motor_data {
 	float angle_offset;
 
 	float pid_angle_input;
-	float pid_ref_input;
+
+	int8_t pid_count;
 
 	struct k_spinlock data_input_lock;
 
