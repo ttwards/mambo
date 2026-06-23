@@ -1,0 +1,539 @@
+/*
+ * 机械臂区域控制板 — 串口通信 + 三路继电器控制 + 机械臂抓取轨迹
+ *
+ * 通过 ARES UART 双协议与上位机进行双向通信 (8 float),
+ * 同时控制 PE9/PE11/PE13 三路继电器和 3 路 CAN 电机。
+ *
+ * 接收 (上位机 -> 本板):
+ *   [0] 模式选择: 1=模式1/2, 2=模式3
+ *   [1] 子模式: 200=模式1, -200=模式2
+ *   [2..7] 保留
+ *
+ * 发送 (本板 -> 上位机):
+ *   [0] 动作完成标志 (magic number, 抗干扰)
+ *   [1..4] 4 个电机反馈角度
+ *   [5..7] 3 个继电器高低电平
+ */
+
+#include <zephyr/device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/motor.h>
+#include <zephyr/logging/log.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdio.h>
+
+#include <ares/interface/uart/uart.h>
+#include <ares/protocol/dual/dual_protocol.h>
+#include <ares/ares_comm.h>
+
+LOG_MODULE_REGISTER(relay_comm, LOG_LEVEL_DBG);
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+/* ==================== 机械臂物理参数 ==================== */
+
+#define L1 440.0    /* 大臂长度 */
+#define L2 460.0    /* 小臂长度 */
+#define L_CUP 0.0   /* 吸嘴尖端到腕部轴心的直线距离 */
+
+/* ==================== 贝塞尔控制点宏定义 ==================== */
+
+#define P0_X    300.0f
+#define P0_Y    100.0f
+
+/* 目标 1: 正前朝前吸 */
+#define T1_P1_X   400.0f
+#define T1_P1_Y   50.0f
+#define T1_P2_X   757.32f
+#define T1_P2_Y  -107.3f
+#define T1_P3_X   837.32f
+#define T1_P3_Y  -107.3f
+
+/* 目标 2: 正前朝下吸 */
+#define T2_P1_X   400.0f
+#define T2_P1_Y   50.0f
+#define T2_P2_X   700.64f
+#define T2_P2_Y     7.7f
+#define T2_P3_X   893.64f
+#define T2_P3_Y   -72.3f
+
+/* 目标 3: 背后朝前吸 */
+#define T3_P1_X  -550.0f
+#define T3_P1_Y   300.0f
+#define T3_P2_X  -600.19f
+#define T3_P2_Y   279.7f
+#define T3_P3_X  -659.19f
+#define T3_P3_Y   279.7f
+
+/* ==================== 数据结构 ==================== */
+
+typedef struct { double x; double y; } Point2D;
+typedef struct { double alpha; double beta; bool is_reachable; } JointAngles;
+typedef struct { double x; double y; } Error;
+
+typedef enum {
+	MODE_STANDBY,
+	MODE_PICK_T1,     /* 模式 1: 正前朝前吸 */
+	MODE_PICK_T2,     /* 模式 2: 正前朝下吸 */
+	MODE_PICK_T3      /* 模式 3: 背后朝前吸 */
+} RobotMode;
+
+/* ==================== 协议常量 ==================== */
+
+/* 操作指令枚举 */
+enum op_cmd {
+	OP_NONE       = 0,  /* 无操作 */
+	OP_MODE_SELECT = 1, /* 模式选择: [1]=200→模式1, [1]=-200→模式2 */
+	OP_MODE_T3    = 2,  /* 模式3 */
+};
+
+/*
+ * 动作完成标志: 使用不易被串口干扰误判的 magic number.
+ * 通过 union 将 uint32 特征值映射为 float, 避免直接用 0.0/1.0 这类易被噪声命中的值.
+ */
+typedef union {
+	float    f;
+	uint32_t u;
+} flag_val_t;
+
+/* 0x4B0CD0F1 = "DONE-ish", 0x4E0DD0F1 = "NOTD-ish" */
+#define FLAG_DONE     ((flag_val_t){ .u = 0x4B0CD0F1 }).f
+#define FLAG_PENDING  ((flag_val_t){ .u = 0x4E0DD0F1 }).f
+
+/* 继电器电平标志 */
+#define RELAY_HIGH 1.0f
+#define RELAY_LOW  0.0f
+
+/* ==================== 电机设备 ==================== */
+
+#define MOTOR1_NODE DT_NODELABEL(rs_motor1)
+#define MOTOR2_NODE DT_NODELABEL(rs_motor2)
+#define MOTOR3_NODE DT_NODELABEL(rs_motor3)
+
+static const struct device *motor1 = DEVICE_DT_GET(MOTOR1_NODE);
+static const struct device *motor2 = DEVICE_DT_GET(MOTOR2_NODE);
+static const struct device *motor3 = DEVICE_DT_GET(MOTOR3_NODE);
+static const struct device *dm_motor = DEVICE_DT_GET(DT_PATH(motor, dm_motor));
+
+/* ==================== 继电器 ==================== */
+
+/* PE9, PE11, PE13 */
+static const struct gpio_dt_spec relay1 = GPIO_DT_SPEC_GET(DT_NODELABEL(relay_1), gpios);
+static const struct gpio_dt_spec relay2 = GPIO_DT_SPEC_GET(DT_NODELABEL(relay_2), gpios);
+static const struct gpio_dt_spec relay3 = GPIO_DT_SPEC_GET(DT_NODELABEL(relay_3), gpios);
+
+static const struct gpio_dt_spec *relay_gpios[] = {&relay1, &relay2, &relay3};
+
+static int relay_init(void)
+{
+	for (int i = 0; i < 3; i++) {
+		if (!gpio_is_ready_dt(relay_gpios[i])) {
+			LOG_ERR("继电器 %d GPIO 未就绪", i + 1);
+			return -ENODEV;
+		}
+		gpio_pin_configure_dt(relay_gpios[i], GPIO_OUTPUT_INACTIVE);
+		gpio_pin_set_dt(relay_gpios[i], 0);
+	}
+	LOG_INF("三路继电器初始化完成 (PE9/PE11/PE13)");
+	return 0;
+}
+
+static void relay_set(int index, int on)
+{
+	if (index < 0 || index > 2) {
+		return;
+	}
+	gpio_pin_set_dt(relay_gpios[index], on ? 1 : 0);
+}
+
+static int relay_get(int index)
+{
+	if (index < 0 || index > 2) {
+		return 0;
+	}
+	return gpio_pin_get_dt(relay_gpios[index]);
+}
+
+/* ==================== 电机初始化 ==================== */
+
+static int motor_init(void)
+{
+	if (!device_is_ready(motor1) || !device_is_ready(motor2) ||
+	    !device_is_ready(motor3) || !device_is_ready(dm_motor)) {
+		LOG_ERR("电机设备未就绪");
+		return -ENODEV;
+	}
+
+	motor_control(motor1, ENABLE_MOTOR);
+	k_msleep(100);
+	motor_control(motor1, AUTO_REPORT_ENABLE);
+	k_msleep(100);
+	motor_control(motor2, ENABLE_MOTOR);
+	k_msleep(100);
+	motor_control(motor2, AUTO_REPORT_ENABLE);
+	k_msleep(100);
+	motor_control(motor3, ENABLE_MOTOR);
+	k_msleep(100);
+	motor_control(motor3, AUTO_REPORT_ENABLE);
+	k_msleep(100);
+	motor_control(dm_motor, ENABLE_MOTOR);
+	k_msleep(100);
+	motor_set_mode(dm_motor, MIT);
+	k_msleep(1000);
+
+	LOG_INF("电机已启用 (MIT 模式)");
+
+	/* 移动到初始位置 */
+	motor_set_mit(motor2, 0.0, 90, 0.0);
+	motor_set_mit(motor3, 0.0, 90, 0.0);
+	k_msleep(1000);
+	LOG_INF("电机初始位置: motor2=90°, motor3=90°");
+
+	return 0;
+}
+
+/* ==================== 核心算法: 贝塞尔 + 逆运动学 ==================== */
+
+static Point2D CalculateBezierPoint(double t, Point2D p0, Point2D p1, Point2D p2, Point2D p3)
+{
+	Point2D p;
+	double u = 1.0 - t, tt = t * t, uu = u * u, uuu = uu * u, ttt = tt * t;
+	p.x = uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x;
+	p.y = uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y;
+	return p;
+}
+
+static JointAngles CalculateIK(Point2D target, int is_backward)
+{
+	JointAngles angles = {0.0, 0.0, true};
+	double r_sq = target.x * target.x + target.y * target.y;
+	double r = sqrt(r_sq);
+
+	if (r > (L1 + L2) || r < fabs(L1 - L2)) {
+		angles.is_reachable = false;
+		return angles;
+	}
+
+	double cos_beta = (L1 * L1 + L2 * L2 - r_sq) / (2 * L1 * L2);
+	if (cos_beta > 1.0) cos_beta = 1.0;
+	if (cos_beta < -1.0) cos_beta = -1.0;
+	double beta_rad = acos(cos_beta);
+
+	double theta_rad = atan2(target.y, target.x);
+	double cos_gamma = (L1 * L1 + r_sq - L2 * L2) / (2 * L1 * r);
+	if (cos_gamma > 1.0) cos_gamma = 1.0;
+	if (cos_gamma < -1.0) cos_gamma = -1.0;
+	double gamma_rad = acos(cos_gamma);
+
+	double alpha_rad;
+	if (is_backward == 0) {
+		alpha_rad = theta_rad + gamma_rad;
+	} else {
+		alpha_rad = theta_rad - gamma_rad;
+	}
+
+	angles.alpha = alpha_rad * (180.0 / M_PI);
+	angles.beta = beta_rad * (180.0 / M_PI);
+	return angles;
+}
+
+/* ==================== 轨迹执行 ==================== */
+
+static void ExecuteTrajectory(RobotMode current_mode)
+{
+	Point2D p0 = {P0_X, P0_Y};
+	Point2D p1, p2, p3;
+	double offset_x = 0.0;
+	double offset_y = 0.0;
+	double theta;
+	double real_beta;
+	int theta_mode;
+	int backward;
+
+	switch (current_mode) {
+	case MODE_PICK_T1:
+		p1 = (Point2D){T1_P1_X, T1_P1_Y};
+		p2 = (Point2D){T1_P2_X, T1_P2_Y};
+		p3 = (Point2D){T1_P3_X, T1_P3_Y};
+		offset_x = -L_CUP;
+		offset_y = 0.0;
+		theta_mode = 1;
+		backward = 0;
+		LOG_INF(">>> 开始执行 [目标 1: 正前朝前吸] <<<");
+		break;
+
+	case MODE_PICK_T2:
+		p1 = (Point2D){T2_P1_X, T2_P1_Y};
+		p2 = (Point2D){T2_P2_X, T2_P2_Y};
+		p3 = (Point2D){T2_P3_X, T2_P3_Y};
+		offset_x = 0.0;
+		offset_y = L_CUP;
+		theta_mode = 2;
+		backward = 0;
+		LOG_INF(">>> 开始执行 [目标 2: 正前朝下吸] <<<");
+		break;
+
+	case MODE_PICK_T3:
+		p0 = (Point2D){-453.0, 360.0};
+		p1 = (Point2D){T3_P1_X, T3_P1_Y};
+		p2 = (Point2D){T3_P2_X, T3_P2_Y};
+		p3 = (Point2D){T3_P3_X, T3_P3_Y};
+		offset_x = L_CUP;
+		offset_y = 0.0;
+		theta_mode = 3;
+		backward = 1;
+		LOG_INF(">>> 开始执行 [目标 3: 背后朝前吸] <<<");
+		break;
+
+	default:
+		LOG_INF("系统待机中...");
+		return;
+	}
+
+	int steps = 20;
+	for (int i = 0; i <= steps; ++i) {
+		double t = (double)i / steps;
+
+		/* 1. 算吸盘尖端坐标 */
+		Point2D tip_target = CalculateBezierPoint(t, p0, p1, p2, p3);
+
+		/* 2. 算腕部关节坐标 */
+		Point2D wrist_target;
+		wrist_target.x = tip_target.x + offset_x;
+		wrist_target.y = tip_target.y + offset_y;
+
+		/* 3. 逆运动学求解 */
+		JointAngles joint_cmd = CalculateIK(wrist_target, backward);
+
+		if (!joint_cmd.is_reachable) {
+			LOG_WRN("警告: 轨迹点超出范围，急停！");
+			break;
+		}
+
+		/* 模式1 误差修正 */
+		Error error_1 = {2, -12};
+		real_beta = 180 - (joint_cmd.alpha + joint_cmd.beta) + error_1.y;
+		motor_set_mit(motor2, 0.0, joint_cmd.alpha + error_1.x, 0.0);
+		motor_set_mit(motor3, 0.0, real_beta, 0.0);
+
+		/* 模式2 误差修正 (待启用) */
+		/* Error error_2 = {15.0, -9.0}; */
+		/* real_beta = 180 - (joint_cmd.alpha + joint_cmd.beta) + error_2.y; */
+		/* motor_set_mit(motor2, 0.0, joint_cmd.alpha + error_2.x, 0.0); */
+		/* motor_set_mit(motor3, 0.0, real_beta, 0.0); */
+
+		/* 模式3 误差修正 (待启用) */
+		/* Error error_3 = {-5, 10}; */
+		/* real_beta = 180 - (joint_cmd.alpha + joint_cmd.beta) + error_3.y; */
+		/* motor_set_mit(motor2, 0.0, joint_cmd.alpha + error_3.x, 0.0); */
+		/* motor_set_mit(motor3, 0.0, real_beta, 0.0); */
+
+		if (i == 0) {
+			k_msleep(2000);
+		}
+
+		switch (theta_mode) {
+		case 1:
+			theta = 180 - joint_cmd.alpha - joint_cmd.beta + error_1.y;
+			break;
+		case 2:
+			/* theta = 90 - joint_cmd.alpha - joint_cmd.beta + error_2.y; */
+			theta = 90 - joint_cmd.alpha - joint_cmd.beta;
+			break;
+		case 3:
+			/* theta = 270 - joint_cmd.alpha - joint_cmd.beta + error_3.y; */
+			theta = 270 - joint_cmd.alpha - joint_cmd.beta;
+			break;
+		default:
+			LOG_ERR("未知 theta_mode: %d", theta_mode);
+			return;
+		}
+		motor_set_mit(dm_motor, 0.0, theta, 0.0);
+
+		if (i == 0 || i == steps) {
+			LOG_INF("t=%.2f | 腕部(%.1f, %.1f) | Alpha=%.2f°, Beta=%.2f°",
+				t, wrist_target.x, wrist_target.y,
+				joint_cmd.alpha, joint_cmd.beta);
+		}
+
+		k_msleep(700);
+	}
+
+	LOG_INF("动作执行完毕。");
+}
+
+/* ==================== 串口通信 ==================== */
+
+/* UART 设备 */
+#define UART_NODE DT_NODELABEL(usart6)
+static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
+
+ARES_UART_INTERFACE_DEFINE(uart_interface);
+DUAL_PROPOSE_PROTOCOL_DEFINE(uart_protocol);
+
+/* 双向数据通道 */
+#define SYNC_ID_TX 0x0100 /* 本板 -> 上位机 */
+#define SYNC_ID_RX 0x0200 /* 上位机 -> 本板 */
+
+/* 8 个 float = 32 字节 */
+#define DATA_LEN 32
+static float tx_data[8]; /* [完成标志, 电机角度x4, 继电器状态x3] */
+static float rx_data[8]; /* [模式选择, 子模式, 保留x6] */
+
+static sync_table_t *tx_pack;
+static sync_table_t *rx_pack;
+
+/* 统计 */
+static uint32_t rx_cnt;
+static uint32_t tx_cnt;
+static uint32_t tx_fail;
+
+/* 新数据到达标志 */
+static bool rx_new_data;
+
+/* 动作完成脉冲计数器 */
+#define DONE_PULSE_FRAMES 10
+static uint8_t done_pulse;
+
+/* 轨迹执行独立线程 */
+static RobotMode pending_mode;
+static volatile bool trajectory_running;
+K_SEM_DEFINE(trajectory_sem, 0, 1);
+
+static void rx_cb(int status)
+{
+	if (status == SYNC_PACK_STATUS_DONE) {
+		rx_cnt++;
+		rx_new_data = true;
+	}
+}
+
+static int uart_comm_init(void)
+{
+	if (!device_is_ready(uart_dev)) {
+		LOG_ERR("UART 设备未就绪");
+		return -ENODEV;
+	}
+
+	ares_uart_init_dev(&uart_interface, uart_dev);
+	int ret = ares_bind_interface(&uart_interface, &uart_protocol);
+	if (ret < 0) {
+		LOG_ERR("UART 绑定失败: %d", ret);
+		return ret;
+	}
+
+	tx_pack = dual_sync_add(&uart_protocol, SYNC_ID_TX, (uint8_t *)tx_data,
+				DATA_LEN, NULL);
+	rx_pack = dual_sync_add(&uart_protocol, SYNC_ID_RX, (uint8_t *)rx_data,
+				DATA_LEN, rx_cb);
+
+	LOG_INF("串口通信初始化完成 (TX:0x%04X RX:0x%04X len=%d)",
+		SYNC_ID_TX, SYNC_ID_RX, DATA_LEN);
+	return 0;
+}
+
+static int uart_tx_flush(void)
+{
+	return dual_sync_flush(&uart_protocol, tx_pack);
+}
+
+/* ==================== 指令处理 ==================== */
+
+static void process_rx_command(void)
+{
+	int cmd = (int)rx_data[0];
+	float val = rx_data[1];
+
+	switch (cmd) {
+	case OP_MODE_SELECT: /* rx_data[0] == 1 */
+		if (val == 200.0f) {
+			ExecuteTrajectory(MODE_PICK_T1);
+			relay_set(0, 1);
+			LOG_INF("模式1完成, 继电器1打开 (PE9=HIGH)");
+		} else if (val == -200.0f) {
+			ExecuteTrajectory(MODE_PICK_T2);
+			relay_set(0, 1);
+			LOG_INF("模式2完成, 继电器1打开 (PE9=HIGH)");
+		} else {
+			LOG_WRN("未知子模式: val=%.2f", (double)val);
+			return;
+		}
+		done_pulse = DONE_PULSE_FRAMES;
+		break;
+
+	case OP_MODE_T3: /* rx_data[0] == 2 */
+		ExecuteTrajectory(MODE_PICK_T3);
+		relay_set(0, 0);
+		LOG_INF("模式3完成, 继电器1关闭 (PE9=LOW)");
+		done_pulse = DONE_PULSE_FRAMES;
+		break;
+
+	case OP_NONE:
+	default:
+		/* 无操作, 不触发脉冲 */
+		break;
+	}
+}
+
+/* ==================== 主函数 ==================== */
+
+int main(void)
+{
+	LOG_INF("===== 机械臂区域控制板启动 =====");
+
+	if (relay_init() < 0) {
+		return -1;
+	}
+
+	if (uart_comm_init() < 0) {
+		return -1;
+	}
+
+	if (motor_init() < 0) {
+		LOG_WRN("电机初始化失败, 继续运行 (仅继电器功能可用)");
+	}
+
+	while (1) {
+		/* 仅在新数据到达且非脉冲期间处理指令 */
+		if (done_pulse == 0 && rx_new_data) {
+			rx_new_data = false;
+			process_rx_command();
+		}
+
+		tx_data[0] = (done_pulse > 0) ? FLAG_DONE : FLAG_PENDING;
+		tx_data[1] = (float)motor_get_angle(motor2);
+		tx_data[2] = (float)motor_get_angle(motor3);
+		tx_data[3] = (float)motor_get_angle(dm_motor);
+		tx_data[4] = 0.0f;
+		tx_data[5] = relay_get(0) ? RELAY_HIGH : RELAY_LOW;
+		tx_data[6] = relay_get(1) ? RELAY_HIGH : RELAY_LOW;
+		tx_data[7] = relay_get(2) ? RELAY_HIGH : RELAY_LOW;
+
+		if (done_pulse > 0) {
+			done_pulse--;
+		}
+
+		int flush_ret = uart_tx_flush();
+		if (flush_ret != 0) {
+			tx_fail++;
+			if (tx_fail <= 5 || tx_fail % 500 == 0) {
+				LOG_ERR("[TX_FAIL] ret=%d fail=%u", flush_ret, tx_fail);
+			}
+		}
+		tx_cnt++;
+
+		/* 每 10 秒 (1000 帧) 输出健康摘要 */
+		if (tx_cnt % 1000 == 0) {
+			LOG_INF("[HEART] TX=%u RX=%u fail=%u",
+				tx_cnt, rx_cnt, tx_fail);
+		}
+
+		k_msleep(10); /* 100Hz */
+	}
+
+	return 0;
+}

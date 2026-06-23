@@ -1,0 +1,231 @@
+/ {
+	chassis: chassis {
+		compatible = "ares,chassis";
+		status = "okay";
+		wheels = <&steerwheel3  0 2996>,
+				<&steerwheel2 2595( -1498)>,
+				<&steerwheel1 (-2595) (-1498)>;
+		angle-pid = <&chassis_roll_angle_pid>;
+		max_linear_accel = "4";
+		max_gyro = "20";
+		track_angle;
+	};
+	steerwheel {
+		steerwheel1: steerwheel1 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer0>;
+			wheel-motor = <&motor_wheel0>;
+			wheel-radius = "0.0555";
+			angle-offset = "300";
+		};
+
+		steerwheel2: steerwheel2 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer1>;
+			wheel-motor = <&motor_wheel1>;
+			wheel-radius = "0.0555";
+			angle-offset = "60";
+		};
+
+		steerwheel3: steerwheel3 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer2>;
+			wheel-motor = <&motor_wheel2>;
+			wheel-radius = "0.0555";
+			angle-offset = "185";
+		};
+	};
+
+	rm_motor {
+		motor_wheel0: motor_wheel0{
+			compatible = "dji,motor";
+            is_m3508;
+			id = <1>;
+            rx_id = <0x201>;
+            tx_id = <0x200>;
+			gear_ratio = "15.7647";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&wheel_angle_pid &wheel_speed_pid>;
+			capabilities = "angle", "speed";
+		};
+
+		motor_wheel1: motor_wheel1{
+			compatible = "dji,motor";
+            is_m3508;
+			id = <2>;
+            rx_id = <0x202>;
+            tx_id = <0x200>;
+			gear_ratio = "15.7647";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&wheel_angle_pid &wheel_speed_pid>;
+			capabilities = "angle", "speed";
+		};
+
+		motor_wheel2: motor_wheel2{
+			compatible = "dji,motor";
+            is_m3508;
+			id = <3>;
+            rx_id = <0x203>;
+            tx_id = <0x200>;
+			gear_ratio = "15.7647";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&wheel_angle_pid &wheel_speed_pid>;
+			capabilities = "angle", "speed";
+		};
+
+		motor_steer0: motor_steer0{
+			compatible = "dji,motor";
+			is_gm6020;
+			id = <5>;
+			rx_id = <0x209>;
+			tx_id = <0x2FF>;
+			gear_ratio = "1.0";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&steer_angle_pid &steer_speed_pid>;
+			capabilities = "angle", "speed";
+			minor_arc;
+		};
+
+		motor_steer1: motor_steer1{
+			compatible = "dji,motor";
+			is_gm6020;
+			id = <6>;
+			rx_id = <0x20A>;
+			tx_id = <0x2FF>;
+			gear_ratio = "1.0";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&steer_angle_pid &steer_speed_pid>;
+			capabilities = "angle", "speed";
+			minor_arc;
+		};
+
+		motor_steer2: motor_steer2{
+			compatible = "dji,motor";
+			is_gm6020;
+			id = <7>;
+			rx_id = <0x20B>;
+			tx_id = <0x2FF>;
+			gear_ratio = "1.0";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&steer_angle_pid &steer_speed_pid>;
+			capabilities = "angle", "speed";
+			minor_arc;
+		};
+
+		motor_yq1: motor_yq1 {
+			compatible = "dji,motor";
+			is_m3508;
+			id = <1>;
+			rx_id = <0x201>;
+			tx_id = <0x200>;
+			gear_ratio = "19";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&angle_pid_yq &speed_pid_yq>;
+			capabilities = "angle", "speed";
+		};
+
+		motor_yq2: motor_yq2 {
+			compatible = "dji,motor";
+			is_m3508;
+			id = <2>;
+			rx_id = <0x202>;
+			tx_id = <0x200>;
+			gear_ratio = "19";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&angle_pid_yq &speed_pid_yq>;
+			capabilities = "angle", "speed";
+		};
+
+		motor_yq3: motor_yq3 {
+			compatible = "dji,motor";
+			is_m3508;
+			id = <3>;
+			rx_id = <0x203>;
+			tx_id = <0x200>;
+			gear_ratio = "19";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&angle_pid_yq &speed_pid_yq>;
+			capabilities = "angle", "speed";
+		};
+	};
+
+	sbus0: sbus0 {
+		compatible = "ares,sbus";
+		status = "okay";
+	};
+
+	pid {
+		wheel_speed_pid: wheel_speed_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.12";
+			k_d = "0.2";
+			detri_lpf = "0.85";
+			out_max = "4";
+		};
+
+		wheel_angle_pid: wheel_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "3.7";
+			detri_lpf = "0.85";
+		};
+
+		steer_speed_pid: steer_speed_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.0215";
+			k_d = "1.0";
+			detri_lpf = "0.75";
+		};
+
+		steer_angle_pid: steer_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "5.65";
+			k_i = "0.0000000001";
+			i_max = "26";
+			detri_lpf = "0.55";
+		};
+
+		chassis_roll_angle_pid: chassis_roll_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.09";
+			k_d = "0.27";
+		};
+
+		angle_pid_yq: angle_pid_yq {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "1.2";
+			k_d = "8";
+		};
+		speed_pid_yq: speed_pid_yq {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.2";
+			k_d = "0";
+		};
+	};
+};
+
+
+&cdc_acm_uart0 {
+	status = "disabled";
+};

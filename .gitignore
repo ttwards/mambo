@@ -12,6 +12,9 @@ _deps
 CMakeUserPresets.json
 build
 .cache
+.ccache
+.zephyr-cache
+build_*
 .DS_Store
 .VSCodeCounter
 app

@@ -1,0 +1,111 @@
+/ {
+    motor {
+        dm_motor: dm_motor{
+			compatible = "dm,motor";
+			id = <4>;
+			rx_id = <0x04>;
+			tx_id = <0x04>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_4>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+        rs_motor1: rs_motor1 {
+            compatible = "rs,motor";
+            id = <1>;
+            tx_id = <0x01>;
+            rx_id = <0xFD>;
+            motor_type = "RS02";
+            status = "okay";
+            can_channel = <&can1>;
+            controllers = <&mit_pid_1>;
+            capabilities = "mit";
+            p_max = "12.57f";
+            v_max = "44.0f";
+            t_max = "17.0f";
+        };
+
+        rs_motor2: rs_motor2 {
+            compatible = "rs,motor";
+            id = <2>;
+            tx_id = <0x02>;
+            rx_id = <0xFD>;
+            motor_type = "RS02";
+            status = "okay";
+            can_channel = <&can1>;
+            controllers = <&mit_pid_2>;
+            capabilities = "mit";
+            p_max = "12.57f";
+            v_max = "44.0f";
+            t_max = "17.0f";
+        };
+        rs_motor3: rs_motor3 {
+            compatible = "rs,motor";
+            id = <3>;
+            tx_id = <0x03>;
+            rx_id = <0xFD>;
+            motor_type = "RS02";
+            status = "okay";
+            can_channel = <&can1>;
+            controllers = <&mit_pid_3>;
+            capabilities = "mit";
+            p_max = "12.57f";
+            v_max = "44.0f";
+            t_max = "17.0f";
+        };
+        
+    };
+
+    pid {
+		mit_pid_1: mit_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "10.0";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+        mit_pid_2: mit_pid_2 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "50.0";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+        mit_pid_3: mit_pid_3 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "200.0";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+        mit_pid_4: mit_pid_4 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "10.0";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+
+    };
+    emvalve {
+        compatible = "gpio-leds";
+        
+        emvalve1: emvalve1 {
+            gpios = <&gpiof 1 GPIO_ACTIVE_LOW>;
+            label = "emvalve1";
+        };
+        
+        emvalve2: emvalve2 {
+            gpios = <&gpiob 13 GPIO_ACTIVE_LOW>;
+            label = "emvalve2";
+        };
+    };
+	sbus0: sbus0 {
+        compatible = "ares,sbus";
+        status = "okay";
+    };
+
+};

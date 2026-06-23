@@ -50,6 +50,17 @@ int vesc_init(const struct device *dev)
 		LOG_ERR("Error adding CAN filter (err %d)", err);
 		return -1;
 	}
+
+	/* Start periodic timer on first init for offline detection */
+	static bool timer_started = false;
+	if (!timer_started) {
+		k_work_queue_init(&vesc_work_queue);
+		k_work_queue_start(&vesc_work_queue, vesc_work_queue_stack,
+				   VESC_CAN_SEND_STACK_SIZE, VESC_CAN_SEND_PRIORITY, NULL);
+		k_timer_start(&vesc_tx_timer, K_MSEC(600), K_MSEC(8));
+		timer_started = true;
+	}
+
 	return 0;
 }
 
@@ -66,9 +77,12 @@ void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
 	switch (cmd) {
 	case ENABLE_MOTOR:
 		data->enable = true;
+		data->online = true;
+		data->last_rx_time = k_uptime_get();
 		break;
 	case DISABLE_MOTOR:
 		data->enable = false;
+		data->online = false;
 		break;
 	case SET_ZERO:
 		break;
@@ -248,7 +262,22 @@ static void vesc_can_rx_handler(const struct device *can_dev, struct can_frame *
 {
 	const struct device *dev = (const struct device *)user_data;
 	struct vesc_motor_data *data = (struct vesc_motor_data *)(dev->data);
+	const struct vesc_motor_config *cfg = (const struct vesc_motor_config *)(dev->config);
 	struct vesc_can_id *vesc_can_id = (struct vesc_can_id *)&(frame->id);
+
+	/* Only process frames addressed to this motor */
+	if (vesc_can_id->motor_id != cfg->common.id) {
+		return;
+	}
+
+	data->last_rx_time = k_uptime_get();
+
+	if (!data->online && data->enable) {
+		data->online = true;
+		data->need_init_frames = true;
+		LOG_INF("VESC Motor [%d] back online", cfg->common.id);
+	}
+
 	switch (vesc_can_id->msg_type) {
 	case CAN_PACKET_STATUS:
 		data->RAWrpm = (frame->data[0] << 24) | (frame->data[1] << 16) |
@@ -291,6 +320,56 @@ int vesc_get(const struct device *dev, motor_status_t *status)
 	status->torque_limit[1] = -cfg->t_max;
 
 	return 0;
+}
+
+void vesc_tx_isr_handler(struct k_timer *dummy)
+{
+	k_work_submit_to_queue(&vesc_work_queue, &vesc_tx_data_handle);
+}
+
+void vesc_tx_data_handler(struct k_work *work)
+{
+	for (int i = 0; i < VESC_MOTOR_COUNT; i++) {
+		struct vesc_motor_data *data = vesc_motor_devices[i]->data;
+		const struct vesc_motor_config *cfg = vesc_motor_devices[i]->config;
+
+		if (!data->enable) {
+			continue;
+		}
+
+		/* Timeout detection: 50ms without RX -> offline */
+		if (data->online) {
+			uint64_t now = k_uptime_get();
+			if (now - data->last_rx_time > 100) {
+				data->online = false;
+				data->offline_tx_cnt = 0;
+				LOG_ERR("VESC Motor [%d] offline (no feedback)",
+					cfg->common.id);
+			}
+		}
+
+		/* Reconnected: send one control frame immediately */
+		if (data->need_init_frames) {
+			LOG_INF("VESC Motor sending init frame");
+			struct can_frame frame = {0};
+			vesc_motor_pack(vesc_motor_devices[i], &frame);
+			can_send_queued(cfg->common.phy, &frame);
+			data->need_init_frames = false;
+			data->offline_tx_cnt = 0;
+			continue;
+		}
+
+		/* Offline: send control frame at ~50Hz to keep trying */
+		if (!data->online) {
+			if (data->offline_tx_cnt >= 3) {
+				struct can_frame frame = {0};
+				vesc_motor_pack(vesc_motor_devices[i], &frame);
+				can_send_queued(cfg->common.phy, &frame);
+				data->offline_tx_cnt = 0;
+			}
+			data->offline_tx_cnt++;
+		}
+	}
 }
 
 DT_INST_FOREACH_STATUS_OKAY(VESC_MOTOR_INST)

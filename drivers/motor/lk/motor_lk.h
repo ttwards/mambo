@@ -81,6 +81,8 @@ struct lk_motor_data {
 	bool online;
 	bool update;
 	bool enabled;
+	bool need_init_frames;
+	uint16_t offline_tx_cnt;
 	struct pid_config params[3];
 	bool pidupdate[3];
 };
@@ -124,6 +126,8 @@ K_TIMER_DEFINE(lk_tx_timer, lk_tx_isr_handler, NULL);
 		.online = false,                                                                   \
 		.missed_times = 0,                                                                 \
 		.err = 0,                                                                          \
+		.need_init_frames = false,                                                         \
+		.offline_tx_cnt = 0,                                                               \
 		.limit_speed = 800,                                                                \
 		.limit_torque = 12,                                                                \
 		.target_pos = 0,                                                                   \

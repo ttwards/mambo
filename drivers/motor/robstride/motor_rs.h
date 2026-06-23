@@ -67,7 +67,7 @@
 #define CAN_SEND_STACK_SIZE 4096
 #define CAN_SEND_PRIORITY   -1
 
-#define CAN_FILTER_MASK 0x00000000
+#define CAN_FILTER_MASK 0x0000FF00
 
 enum CONTROL_MODE // 控制模式定义
 {
@@ -89,10 +89,11 @@ enum ERROR_TAG // 错误回传对照
 };
 
 struct rs_can_id {
-	uint8_t motor_id: 8;  // 目标ID
-	uint8_t master_id: 8; // 主机ID
-	uint8_t reserved: 8;  // 数据区
+	uint32_t motor_id: 8;  // 目标ID
+	uint32_t master_id: 8; // 主机ID
+	uint32_t reserved: 8;  // 数据区
 	uint32_t msg_type: 5; // 通信类型
+	uint32_t res: 3; 
 };
 
 enum MOTOR_TYPE {
@@ -124,17 +125,17 @@ struct rs_motor_data {
 	uint16_t RAWtemp;
 
 	uint8_t error_code;
-	uint8_t missed_times;
 	bool online;
 	bool enabled;
-	bool reporting;
 	struct pid_config params;
-	uint32_t last_report_time;
+	int16_t missed_times;
 };
 
 struct rs_motor_cfg {
 	struct motor_driver_config common;
 	enum MOTOR_TYPE motor_type;
+
+	bool auto_report;
 
 	float p_max;
 	float v_max;
@@ -147,7 +148,8 @@ int rs_get(const struct device *dev, motor_status_t *status);
 void rs_motor_control(const struct device *dev, enum motor_cmd cmd);
 int rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
 
-void rs_rx_monitor_handler(struct k_work *work);
+void rs_tx_isr_handler(struct k_timer *dummy);
+void rs_tx_data_handler(struct k_work *work);
 
 static const struct motor_driver_api rs_motor_api = {
 	.motor_get = rs_get,
@@ -162,9 +164,9 @@ static const struct device *motor_devices[] = {DT_INST_FOREACH_STATUS_OKAY(RS_MO
 
 K_THREAD_STACK_DEFINE(rs_work_queue_stack, CAN_SEND_STACK_SIZE);
 
-K_MSGQ_DEFINE(rs_thread_proc_msgq, sizeof(bool), MOTOR_COUNT * 2, 4);
+K_WORK_DEFINE(rs_tx_data_handle, rs_tx_data_handler);
 
-K_WORK_DELAYABLE_DEFINE(rs_rx_monitor_work, rs_rx_monitor_handler);
+K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
 
 #define RS_MOTOR_DATA_INST(inst)                                                                   \
 	static struct rs_motor_data rs_motor_data_##inst = {                                       \
@@ -182,6 +184,7 @@ K_WORK_DELAYABLE_DEFINE(rs_rx_monitor_work, rs_rx_monitor_handler);
 	static const struct rs_motor_cfg rs_motor_cfg_##inst = {                                   \
 		.common = MOTOR_DT_DRIVER_CONFIG_INST_GET(inst),                                   \
 		.motor_type = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02),          \
+		.auto_report = DT_PROP(DT_DRV_INST(inst), auto_report),                            \
 		.p_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 12.57f),                  \
 		.v_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 44.0f),                   \
 		.t_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), t_max, 17.0f),                   \

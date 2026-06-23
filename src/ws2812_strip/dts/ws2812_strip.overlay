@@ -1,0 +1,53 @@
+/*
+ * WS2812B LED Strip Device Tree Overlay (模板)
+ *
+ * 将本文件内容合并到你的 app.overlay 中，并根据实际硬件调整：
+ *   - 替换 &spiX 为实际 SPI 总线
+ *   - 调整 spi-max-frequency 匹配你的 SPI 时钟
+ *   - 修改 chain-length 为实际灯珠数
+ *
+ * === 接线 ===
+ *   WS2812B DI  → SPIx_MOSI
+ *   WS2812B VCC → 5V
+ *   WS2812B GND → GND
+ *
+ * === 时序参考（按 SPI 时钟源选择） ===
+ *
+ *   APB1 @ 42 MHz (SPI2/SPI3 on STM32F4):
+ *     spi-max-frequency = <5250000>;    // 42/8
+ *     spi-bits-per-symbol = <6>;
+ *     spi-one-frame = <0x3C>;
+ *     spi-zero-frame = <0x30>;
+ *
+ *   APB2 @ 84 MHz (SPI1 on STM32F4):
+ *     spi-max-frequency = <5250000>;    // 84/16
+ *     spi-bits-per-symbol = <6>;
+ *     spi-one-frame = <0x3C>;
+ *     spi-zero-frame = <0x30>;
+ */
+
+#include <zephyr/dt-bindings/led/led.h>
+
+/* ---- 将下面这段加到你的 app.overlay ---- */
+
+&spi2 {
+	led_strip: ws2812@0 {
+		compatible = "worldsemi,ws2812-spi";
+		reg = <0>;
+		spi-max-frequency = <5250000>;
+		frame-format = <32768>;     /* SPI_FRAME_FORMAT_TI */
+		spi-bits-per-symbol = <6>;
+		spi-one-frame = <0x3C>;    /* "1" bit: 762ns H, 381ns L */
+		spi-zero-frame = <0x30>;   /* "0" bit: 381ns H, 762ns L */
+		chain-length = <8>;
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE>;
+	};
+};
+
+/ {
+	aliases {
+		led-strip = &led_strip;
+	};
+};

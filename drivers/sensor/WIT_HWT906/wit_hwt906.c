@@ -8,19 +8,16 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/sys/ring_buffer.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/logging/log.h>
+#include <string.h>
+
+LOG_MODULE_REGISTER(wit_hwt906, LOG_LEVEL_INF);
 
 #define DATA(idx) (short)((short)buf[idx + 1] << 8 | buf[idx]) // 组合高低字节
 
-#define WIT_BUF_SIZE 128
-
 struct wit_hwt906_data {
 	const struct device *dev; // 指向自身的指针
-
-	/*环形缓冲区*/
-	struct ring_buf rx_ringbuf;
-	uint8_t rx_buf[WIT_BUF_SIZE]; // 实际存数据的数组
 
 	/*缓存解析后的数据(后面统一单位)*/
 	struct {
@@ -34,9 +31,109 @@ struct wit_hwt906_data {
 		int16_t Version;  // 版本号，对应 0x53 包: VerL, VerH
 	} raw;
 
+	uint8_t parse_buf[11];
+	uint8_t last_acc_packet[11];
+	uint8_t last_angle_packet[11];
+	uint8_t parse_len;
+	uint32_t total_bytes_received;
 	uint32_t total_bytes_dropped;
-	uint32_t overflow_count;
+	uint32_t bad_header_count;
+	uint32_t bad_checksum_count;
+	uint32_t unknown_packet_count;
+	uint32_t packet_count[5];
+	uint32_t last_diag_ms;
 };
+
+static void wit_hwt906_parse_packet(struct wit_hwt906_data *data, const uint8_t *buf)
+{
+	/* 解析数据 (低8位在前，高8位在后) */
+	switch (buf[1]) {
+	case 0x50: // 时间包
+		for (int i = 0; i < 8; i++) {
+			data->raw.time[i] = buf[i + 2];
+		}
+		data->packet_count[0]++;
+		break;
+	case 0x51:                          // 加速度包
+		memcpy(data->last_acc_packet, buf, sizeof(data->last_acc_packet));
+		data->raw.acc[0] = DATA(2); // AxL, AxH
+		data->raw.acc[1] = DATA(4); // AyL, AyH
+		data->raw.acc[2] = DATA(6); // AzL, AzH
+		data->raw.temp = DATA(8);   // TL, TH
+		data->packet_count[1]++;
+		break;
+	case 0x52:                           // 角速度包
+		data->raw.gyro[0] = DATA(2); // WxL, WxH
+		data->raw.gyro[1] = DATA(4); // WyL, WyH
+		data->raw.gyro[2] = DATA(6); // WzL, WzH
+		data->raw.Vol = DATA(8);     // VL, VH
+		data->packet_count[2]++;
+		break;
+	case 0x53:                            // 角度包
+		memcpy(data->last_angle_packet, buf, sizeof(data->last_angle_packet));
+		data->raw.angle[0] = DATA(2); // RollL, RollH
+		data->raw.angle[1] = DATA(4); // PitchL, PitchH
+		data->raw.angle[2] = DATA(6); // YawL, YawH
+		data->raw.Version = DATA(8);  // VerL, VerH
+		data->packet_count[3]++;
+		break;
+	case 0x54:                          // 磁场包
+		data->raw.mag[0] = DATA(2); // HxL, HxH
+		data->raw.mag[1] = DATA(4); // HyL, HyH
+		data->raw.mag[2] = DATA(6); // HzL, HzH
+		data->raw.temp = DATA(8);   // TL, TH
+		data->packet_count[4]++;
+		break;
+	default:
+		// 其他类型的包我们暂时不关心
+		data->unknown_packet_count++;
+		break;
+	}
+}
+
+static void wit_hwt906_parse_byte(struct wit_hwt906_data *data, uint8_t byte)
+{
+	uint8_t sum = 0;
+
+	data->total_bytes_received++;
+
+	if (data->parse_len == 0U) {
+		if (byte != 0x55) {
+			data->bad_header_count++;
+			return;
+		}
+		data->parse_buf[data->parse_len++] = byte;
+		return;
+	}
+
+	data->parse_buf[data->parse_len++] = byte;
+	if (data->parse_len < sizeof(data->parse_buf)) {
+		return;
+	}
+
+	for (int i = 0; i < 10; i++) {
+		sum = (uint8_t)(sum + data->parse_buf[i]);
+	}
+
+	if (sum == data->parse_buf[10]) {
+		wit_hwt906_parse_packet(data, data->parse_buf);
+		data->parse_len = 0U;
+		return;
+	}
+
+	data->bad_checksum_count++;
+	for (int i = 1; i < sizeof(data->parse_buf); i++) {
+		if (data->parse_buf[i] == 0x55) {
+			uint8_t remaining = sizeof(data->parse_buf) - i;
+
+			memmove(data->parse_buf, &data->parse_buf[i], remaining);
+			data->parse_len = remaining;
+			return;
+		}
+	}
+
+	data->parse_len = 0U;
+}
 
 static void wit_hwt906_uart_cb(const struct device *uart_dev, void *user_data)
 {
@@ -53,30 +150,9 @@ static void wit_hwt906_uart_cb(const struct device *uart_dev, void *user_data)
 		int len = uart_fifo_read(uart_dev, buffer, sizeof(buffer));
 
 		if (len > 0) {
-			uint32_t space = ring_buf_space_get(&data->rx_ringbuf);
-
-			/* 如果空间不足，丢弃最老的数据 */
-			if (space < len) {
-				uint32_t to_discard = len - space;
-				uint8_t dummy[64];
-
-				/* 分块丢弃 */
-				while (to_discard > 0) {
-					uint32_t chunk = MIN(to_discard, sizeof(dummy));
-					uint32_t removed =
-						ring_buf_get(&data->rx_ringbuf, dummy, chunk);
-					to_discard -= removed;
-					data->total_bytes_dropped += removed;
-
-					if (removed == 0)
-						break;
-				}
-
-				data->overflow_count++;
+			for (int i = 0; i < len; i++) {
+				wit_hwt906_parse_byte(data, buffer[i]);
 			}
-
-			/* 写入新数据 */
-			ring_buf_put(&data->rx_ringbuf, buffer, len);
 		}
 	}
 }
@@ -89,12 +165,8 @@ struct wit_hwt906_config {
 static int wit_hwt906_init(const struct device *dev)
 {
 	const struct wit_hwt906_config *cfg = dev->config;
-	struct wit_hwt906_data *data = dev->data;
 
 	printk("[Driver] WIT HWT906 initializing...\n");
-
-	/* 初始化 Ring Buffer */
-	ring_buf_init(&data->rx_ringbuf, sizeof(data->rx_buf), data->rx_buf);
 
 	if (!device_is_ready(cfg->uart_dev)) {
 		printk("[Driver] Error: UART device not ready\n");
@@ -113,85 +185,50 @@ static int wit_hwt906_init(const struct device *dev)
 static int wit_hwt906_sample_fetch(const struct device *dev, enum sensor_channel chan)
 {
 	struct wit_hwt906_data *data = dev->data;
-	uint8_t buf[11]; // 临时存一个包
-	int processed = 0;
+	uint32_t now_ms = k_uptime_get_32();
 
-	/* 循环处理，直到仓库里的数据不足 11 个字节 */
-	while (ring_buf_size_get(&data->rx_ringbuf) >= 11) {
+	if (now_ms - data->last_diag_ms >= 1000U) {
+		int16_t angle_raw[3];
+		int16_t acc_raw[3];
+		int16_t version_raw;
+		uint8_t acc_packet[11];
+		uint8_t angle_packet[11];
+		unsigned int key;
 
-		/* 先偷看11个字节，不从仓库移除 */
-		ring_buf_peek(&data->rx_ringbuf, buf, 11);
+		data->last_diag_ms = now_ms;
 
-		/* 检查包头 0x55 */
-		if (buf[0] != 0x55) {
-			/* 包头不对，说明错位了。丢弃 1 个字节，下次循环再试试下一位 */
-			uint8_t dummy;
-			ring_buf_get(&data->rx_ringbuf, &dummy, 1);
-			continue;
-		}
+		key = irq_lock();
+		angle_raw[0] = data->raw.angle[0];
+		angle_raw[1] = data->raw.angle[1];
+		angle_raw[2] = data->raw.angle[2];
+		acc_raw[0] = data->raw.acc[0];
+		acc_raw[1] = data->raw.acc[1];
+		acc_raw[2] = data->raw.acc[2];
+		version_raw = data->raw.Version;
+		memcpy(acc_packet, data->last_acc_packet, sizeof(acc_packet));
+		memcpy(angle_packet, data->last_angle_packet, sizeof(angle_packet));
+		irq_unlock(key);
 
-		/* 计算校验和 (前10字节之和 == 第11字节) */
-		uint8_t sum = 0;
-		for (int i = 0; i < 10; i++) {
-			sum = (uint8_t)(sum + buf[i]); // 强制转换为 uint8_t，只保留低8位
-		}
-
-		if (sum != buf[10]) {
-			/* 校验失败，说明可能是偶然出现的 0x55，或者是坏数据。丢弃 1 字节重试 */
-			uint8_t dummy;
-			ring_buf_get(&data->rx_ringbuf, &dummy, 1);
-			continue;
-		}
-
-		/* 校验通过！这真的是一个完整的数据包。现在正式从仓库取出。 */
-		ring_buf_get(&data->rx_ringbuf, buf, 11);
-
-		// printk("Pkg: 0x%02X\n", buf[1]);
-
-		/* 解析数据 (低8位在前，高8位在后) */
-		switch (buf[1]) {
-		case 0x50: // 时间包
-			for (int i = 0; i < 8; i++) {
-				data->raw.time[i] = buf[i + 2];
-			}
-			processed++;
-			break;
-		case 0x51:                          // 加速度包
-			data->raw.acc[0] = DATA(2); // AxL, AxH
-			data->raw.acc[1] = DATA(4); // AyL, AyH
-			data->raw.acc[2] = DATA(6); // AzL, AzH
-			data->raw.temp = DATA(8);   // TL, TH
-			processed++;
-			break;
-		case 0x52:                           // 角速度包
-			data->raw.gyro[0] = DATA(2); // WxL, WxH
-			data->raw.gyro[1] = DATA(4); // WyL, WyH
-			data->raw.gyro[2] = DATA(6); // WzL, WzH
-			data->raw.Vol = DATA(8);     // VL, VH
-			processed++;
-			break;
-		case 0x53:                            // 角度包
-			data->raw.angle[0] = DATA(2); // RollL, RollH
-			data->raw.angle[1] = DATA(4); // PitchL, PitchH
-			data->raw.angle[2] = DATA(6); // YawL, YawH
-			data->raw.Version = DATA(8);  // VerL, VerH
-			processed++;
-			break;
-		case 0x54:                          // 磁场包
-			data->raw.mag[0] = DATA(2); // HxL, HxH
-			data->raw.mag[1] = DATA(4); // HyL, HyH
-			data->raw.mag[2] = DATA(6); // HzL, HzH
-			data->raw.temp = DATA(8);   // TL, TH
-			processed++;
-			break;
-		default:
-			// 其他类型的包我们暂时不关心
-			break;
-		}
+		LOG_INF("diag pkts 50=%u 51=%u 52=%u 53=%u 54=%u unknown=%u bad_head=%u bad_sum=%u rx=%u drop=%u parse_len=%u angle_raw=(%d %d %d) angle_deg=(%.2f %.2f %.2f) acc_raw=(%d %d %d) ver=0x%04x",
+			data->packet_count[0], data->packet_count[1], data->packet_count[2],
+			data->packet_count[3], data->packet_count[4], data->unknown_packet_count,
+			data->bad_header_count, data->bad_checksum_count,
+			data->total_bytes_received, data->total_bytes_dropped, data->parse_len,
+			angle_raw[0], angle_raw[1], angle_raw[2],
+			(double)(angle_raw[0] / 32768.0 * 180.0),
+			(double)(angle_raw[1] / 32768.0 * 180.0),
+			(double)(angle_raw[2] / 32768.0 * 180.0),
+			acc_raw[0], acc_raw[1], acc_raw[2], (uint16_t)version_raw);
+		LOG_INF("diag raw pkt51=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x pkt53=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+			acc_packet[0], acc_packet[1], acc_packet[2], acc_packet[3],
+			acc_packet[4], acc_packet[5], acc_packet[6], acc_packet[7],
+			acc_packet[8], acc_packet[9], acc_packet[10],
+			angle_packet[0], angle_packet[1], angle_packet[2], angle_packet[3],
+			angle_packet[4], angle_packet[5], angle_packet[6], angle_packet[7],
+			angle_packet[8], angle_packet[9], angle_packet[10]);
 	}
 
-	/* 如果处理了至少一个包，返回成功；否则返回 EAGAIN (稍后再试) */
-	if (processed == 0) {
+	if (data->packet_count[3] == 0U) {
 		return -EAGAIN;
 	}
 	return 0;
@@ -232,52 +269,90 @@ static int wit_hwt906_channel_get(const struct device *dev, enum sensor_channel 
 				  struct sensor_value *val)
 {
 	struct wit_hwt906_data *data = dev->data;
+	unsigned int key;
+	int16_t raw[3];
+	int16_t raw_single;
+	uint8_t time[8];
 
 	switch (chan) {
 	case SENSOR_CHAN_ACCEL_XYZ: // 支持加速度接口
-		wit_convert_acc(&val[0], data->raw.acc[0]);
-		wit_convert_acc(&val[1], data->raw.acc[1]);
-		wit_convert_acc(&val[2], data->raw.acc[2]);
+		key = irq_lock();
+		raw[0] = data->raw.acc[0];
+		raw[1] = data->raw.acc[1];
+		raw[2] = data->raw.acc[2];
+		irq_unlock(key);
+		wit_convert_acc(&val[0], raw[0]);
+		wit_convert_acc(&val[1], raw[1]);
+		wit_convert_acc(&val[2], raw[2]);
 		break;
 
 	case SENSOR_CHAN_GYRO_XYZ: // 支持角速度接口
-		wit_convert_gyro(&val[0], data->raw.gyro[0]);
-		wit_convert_gyro(&val[1], data->raw.gyro[1]);
-		wit_convert_gyro(&val[2], data->raw.gyro[2]);
+		key = irq_lock();
+		raw[0] = data->raw.gyro[0];
+		raw[1] = data->raw.gyro[1];
+		raw[2] = data->raw.gyro[2];
+		irq_unlock(key);
+		wit_convert_gyro(&val[0], raw[0]);
+		wit_convert_gyro(&val[1], raw[1]);
+		wit_convert_gyro(&val[2], raw[2]);
 		break;
 
 	case SENSOR_CHAN_ROTATION: // 支持欧拉角接口 (Roll, Pitch, Yaw)
-		wit_convert_angle(&val[0], data->raw.angle[0]);
-		wit_convert_angle(&val[1], data->raw.angle[1]);
-		wit_convert_angle(&val[2], data->raw.angle[2]);
+		key = irq_lock();
+		raw[0] = data->raw.angle[0];
+		raw[1] = data->raw.angle[1];
+		raw[2] = data->raw.angle[2];
+		irq_unlock(key);
+		wit_convert_angle(&val[0], raw[0]);
+		wit_convert_angle(&val[1], raw[1]);
+		wit_convert_angle(&val[2], raw[2]);
 		break;
 
 	case SENSOR_CHAN_MAGN_XYZ: // 支持磁场接口
-		sensor_value_from_double(&val[0], data->raw.mag[0]);
-		sensor_value_from_double(&val[1], data->raw.mag[1]);
-		sensor_value_from_double(&val[2], data->raw.mag[2]);
+		key = irq_lock();
+		raw[0] = data->raw.mag[0];
+		raw[1] = data->raw.mag[1];
+		raw[2] = data->raw.mag[2];
+		irq_unlock(key);
+		sensor_value_from_double(&val[0], raw[0]);
+		sensor_value_from_double(&val[1], raw[1]);
+		sensor_value_from_double(&val[2], raw[2]);
 		break;
 
 	case SENSOR_CHAN_DIE_TEMP: // 支持芯片温度接口
-		wit_convert_temp(&val[0], data->raw.temp);
+		key = irq_lock();
+		raw_single = data->raw.temp;
+		irq_unlock(key);
+		wit_convert_temp(&val[0], raw_single);
 		break;
 
 	case SENSOR_CHAN_VOLTAGE: // Zephyr 标准电压通道
-		wit_convert_voltage(&val[0], data->raw.Vol);
+		key = irq_lock();
+		raw_single = data->raw.Vol;
+		irq_unlock(key);
+		wit_convert_voltage(&val[0], raw_single);
 		break;
 
 	/* 新增：时间戳通道 (使用 PRIV_START 自定义) */
 	case SENSOR_CHAN_PRIV_START: // 自定义通道起始位置
 		// 时间戳格式: YY MM DD hh mm ss ms ms，这里只使用时、分、秒、毫秒
-		val[0].val1 = data->raw.time[3];                              // hh
-		val[1].val1 = data->raw.time[4];                              // mm
-		val[2].val1 = data->raw.time[5];                              // ss
-		val[3].val1 = (data->raw.time[7] << 8 | (data->raw.time[6])); // ms
+		key = irq_lock();
+		for (int i = 0; i < 8; i++) {
+			time[i] = data->raw.time[i];
+		}
+		irq_unlock(key);
+		val[0].val1 = time[3];                    // hh
+		val[1].val1 = time[4];                    // mm
+		val[2].val1 = time[5];                    // ss
+		val[3].val1 = (time[7] << 8 | time[6]);   // ms
 		break;
 
 	/* 新增：版本号通道 */
 	case SENSOR_CHAN_PRIV_START + 1:
-		val[0].val1 = data->raw.Version;
+		key = irq_lock();
+		raw_single = data->raw.Version;
+		irq_unlock(key);
+		val[0].val1 = raw_single;
 		val[0].val2 = 0;
 		break;
 

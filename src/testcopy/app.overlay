@@ -1,0 +1,21 @@
+/ {
+    /* 创建一个父节点，使用 gpio-keys 这个 compatible */
+    buttons {
+        compatible = "gpio-keys";
+
+        /* 定义第一个光电开关，节点标签为 sensor_1 */
+        sensor_1: photoelectric_switch_1 {
+            /* 注意：这里的 &gpio0 和 12 需要根据你实际的板子修改 */
+            gpios = <&gpioe 9 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+        };
+
+        /* 定义第二个光电开关，节点标签为 sensor_2 */
+        sensor_2: photoelectric_switch_2 {
+            /* 注意：这里的 &gpio0 和 13 需要根据你实际的板子修改 */
+            gpios = <&gpioe 11 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+        };
+    };
+};
+&cdc_acm_uart0 {
+	status = "disabled";
+};

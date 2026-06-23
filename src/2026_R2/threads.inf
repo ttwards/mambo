@@ -1,0 +1,10 @@
+[00:00:08.570,000] Thread analyze:
+[00:00:08.576,000]  feedback            : STACK: unused 400 usage 1648 / 2048 (80 %); CPU: 76 %
+[00:00:08.596,000]  can_recv            : STACK: unused 164 usage 604 / 768 (78 %); CPU: 1 %
+[00:00:08.616,000]  can_send            : STACK: unused 248 usage 776 / 1024 (75 %); CPU: 21 %
+[00:00:08.637,000]  thread_analyzer     : STACK: unused 2000 usage 48 / 2048 (2 %); CPU: 0 %
+[00:00:08.656,000]  shell_uart          : STACK: unused 1224 usage 824 / 2048 (40 %); CPU: 0 %
+[00:00:08.676,000]  sysworkq            : STACK: unused 452 usage 572 / 1024 (55 %); CPU: 0 %
+[00:00:08.696,000]  idle                : STACK: unused 272 usage 48 / 320 (15 %); CPU: 0 %
+[00:00:08.715,000]  main                : STACK: unused 0 usage 1024 / 1024 (100 %); CPU: 0 %
+[00:00:08.735,000]  ISR0                : STACK: unused 1308 usage 740 / 2048 (36 %)

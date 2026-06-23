@@ -48,13 +48,17 @@ struct vesc_motor_data {
 	struct motor_driver_data common;
 	int8_t err;
 
-	bool online; // 电机在线状态
-	bool enable; // 电机使能状态
-	// bool update;
+	bool online;           // 电机在线状态
+	bool enable;           // 电机使能状态
+	bool need_init_frames; // 重连后需要发送初始化帧
 	float delta_deg_sum;
 	float target_angle;   // 目标位置，单位度
 	float target_radps;   // 目标速度，单位弧度每秒
 	float target_current; // 目标电流，单位安培
+
+	int16_t missed_times;  // 掉线检测计数
+	uint16_t offline_tx_cnt; // 掉线后发送计数
+	uint64_t last_rx_time; // 最近一次收到反馈的时间
 
 	int32_t RAWangle;   // 原始位置数据
 	int32_t RAWrpm;     // 原始速度数据
@@ -78,19 +82,38 @@ struct vesc_motor_config {
 	float i_max; // 最大电流
 };
 
+#define VESC_CAN_SEND_STACK_SIZE 1024
+#define VESC_CAN_SEND_PRIORITY   -1
+
 int vesc_set(const struct device *dev, motor_status_t *status);
 int vesc_get(const struct device *dev, motor_status_t *status);
 void vesc_motor_control(const struct device *dev, enum motor_cmd cmd);
 void vesc_motor_set_mode(const struct device *dev, enum motor_mode mode);
+void vesc_tx_data_handler(struct k_work *work);
+void vesc_tx_isr_handler(struct k_timer *dummy);
 
 extern const struct motor_driver_api vesc_motor_api;
+
+#define VESC_MOTOR_COUNT  DT_NUM_INST_STATUS_OKAY(vesc_motor)
+#define VESC_MOTOR_PTR(inst) DEVICE_DT_GET(DT_DRV_INST(inst)),
+static const struct device *vesc_motor_devices[] = {DT_INST_FOREACH_STATUS_OKAY(VESC_MOTOR_PTR)};
+
+K_THREAD_STACK_DEFINE(vesc_work_queue_stack, VESC_CAN_SEND_STACK_SIZE);
+static struct k_work_q vesc_work_queue;
+
+K_WORK_DEFINE(vesc_tx_data_handle, vesc_tx_data_handler);
+K_TIMER_DEFINE(vesc_tx_timer, vesc_tx_isr_handler, NULL);
 
 #define VESC_MOTOR_DATA_INST(inst)                                                                 \
 	static struct vesc_motor_data vesc_motor_data_##inst = {                                   \
 		.common = MOTOR_DT_DRIVER_DATA_INST_GET(inst),                                     \
 		.online = false,                                                                   \
 		.enable = false,                                                                   \
+		.need_init_frames = false,                                                         \
 		.err = 0,                                                                          \
+		.missed_times = 0,                                                                 \
+		.offline_tx_cnt = 0,                                                               \
+		.last_rx_time = 0,                                                                 \
 		.delta_deg_sum = 0,                                                                \
 		.target_angle = 0,                                                                 \
 		.target_radps = 0,                                                                 \

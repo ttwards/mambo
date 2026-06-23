@@ -1,0 +1,103 @@
+/ {
+	rm_motor {
+		motor0: motor0{
+			compatible = "dji,motor";
+            is_m3508;
+			id = <1>;
+            rx_id = <0x201>;
+            tx_id = <0x200>;
+			gear_ratio = "19.20";
+			status = "okay";
+			can_channel = <&canbus1>;
+			controllers = <&angle_pid_1 &speed_pid_1>;
+			capabilities = "angle", "speed";
+		};
+
+		motor1: motor1{
+			compatible = "dji,motor";
+            is_m3508;
+			id = <2>;
+            rx_id = <0x202>;
+            tx_id = <0x200>;
+			gear_ratio = "19.20";
+			status = "okay";
+			can_channel = <&canbus1>;
+			controllers = <&angle_pid_1 &speed_pid_1>;
+			capabilities = "angle", "speed";
+		};
+	};
+
+	pid {
+		angle_pid_1: angle_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "1";
+			k_i = "0.0";
+			k_d = "0.008";
+		};
+		speed_pid_1: speed_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "1";
+			k_i = "0.0";
+			k_d = "0.08";
+		};
+		angle_pid_2: angle_pid_2 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "7.00";
+			k_i = "0.03";
+			k_d = "8.00";
+		};
+		speed_pid_2: speed_pid_2 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "8.80";
+			k_i = "0.20";
+			k_d = "5.00";
+		};
+		// torque_pid_2: torque_pid_2 {
+		// 	#controller-cells = <0>;
+		// 	compatible = "pid,mit";
+		// 	k_p = <1>;
+		// 	k_i = <0>;
+		// 	k_d = <0>;
+		// };
+	};
+	sbus0: sbus0 {
+		compatible = "ares,sbus";
+		status = "okay";
+	};
+};
+
+&spi1 {
+    status = "okay";
+
+    bmi08x_accel: bmi08x_accel@0 {
+        compatible = "bosch,bmi08x-accel";
+		status = "okay";
+        reg = <0>;
+        spi-max-frequency = <8000000>;
+        int-gpios = <&gpioc 4 GPIO_ACTIVE_HIGH>;
+        accel-hz = "1600";
+        accel-fs = <12>;
+		int1-map-io = <0>;
+		int2-map-io = <0>;
+        int1-conf-io = <0>;
+		int2-conf-io = <0>;
+		// 其他所需属性...
+    };
+
+    bmi08x_gyro: bmi08x_gyro@1{
+        compatible = "bosch,bmi08x-gyro";
+		status = "okay";
+        reg = <1>;
+        spi-max-frequency = <8000000>;
+        int-gpios = <&gpioc 5 GPIO_ACTIVE_HIGH>;
+        gyro-hz = "2000_532";
+        gyro-fs = <2000>;
+		int3-4-map-io = <0>;
+		int3-4-conf-io = <0>;
+        // 其他所需属性...
+    };
+};

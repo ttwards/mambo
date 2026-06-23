@@ -1,0 +1,118 @@
+/ {
+	/* 继电器输出节点 */
+	leds {
+		compatible = "gpio-leds";
+
+		/* 继电器1 - PE9 */
+		relay_1: relay_1 {
+			gpios = <&gpioe 9 GPIO_ACTIVE_HIGH>;
+			label = "Relay 1";
+		};
+
+		/* 继电器2 - PE11 */
+		relay_2: relay_2 {
+			gpios = <&gpioe 11 GPIO_ACTIVE_HIGH>;
+			label = "Relay 2";
+		};
+
+		/* 继电器3 - PE13 */
+		relay_3: relay_3 {
+			gpios = <&gpioe 13 GPIO_ACTIVE_HIGH>;
+			label = "Relay 3";
+		};
+	};
+
+	motor {
+		dm_motor: dm_motor {
+			compatible = "dm,motor";
+			id = <4>;
+			rx_id = <0x04>;
+			tx_id = <0x04>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_4>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+		rs_motor1: rs_motor1 {
+			compatible = "rs,motor";
+			id = <1>;
+			tx_id = <0x01>;
+			rx_id = <0xFD>;
+			motor_type = "RS02";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_1>;
+			capabilities = "mit";
+			p_max = "12.57f";
+			v_max = "44.0f";
+			t_max = "17.0f";
+		};
+		rs_motor2: rs_motor2 {
+			compatible = "rs,motor";
+			id = <2>;
+			tx_id = <0x02>;
+			rx_id = <0xFD>;
+			motor_type = "RS02";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_2>;
+			capabilities = "mit";
+			p_max = "12.57f";
+			v_max = "44.0f";
+			t_max = "17.0f";
+		};
+		rs_motor3: rs_motor3 {
+			compatible = "rs,motor";
+			id = <3>;
+			tx_id = <0x03>;
+			rx_id = <0xFD>;
+			motor_type = "RS02";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_3>;
+			capabilities = "mit";
+			p_max = "12.57f";
+			v_max = "44.0f";
+			t_max = "17.0f";
+		};
+	};
+
+	pid {
+		mit_pid_1: mit_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "100.0";
+			k_i = "0.0";
+			k_d = "3.0";
+		};
+		mit_pid_2: mit_pid_2 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "150.0";
+			k_i = "0.0";
+			k_d = "3.0";
+		};
+		mit_pid_3: mit_pid_3 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "120.0";
+			k_i = "0.0";
+			k_d = "3.0";
+		};
+		mit_pid_4: mit_pid_4 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "100.0";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+	};
+};
+
+/* 与 2026_R2usb_arm gateway 保持相同的波特率 */
+&usart6 {
+	current-speed = <115200>;
+};

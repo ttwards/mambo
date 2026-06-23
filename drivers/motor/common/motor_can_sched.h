@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+typedef bool (*motor_can_sched_reply_match_t)(const struct can_frame *tx_frame,
+					      const struct can_frame *rx_frame,
+					      const void *user_data);
+
 #ifndef MOTOR_CAN_SCHED_MAX_BUS
 #define MOTOR_CAN_SCHED_MAX_BUS 4
 #endif
@@ -44,6 +48,8 @@ struct motor_can_sched_meta {
 	uint8_t max_retries;
 	uint32_t reply_id;
 	uint32_t reply_mask;
+	motor_can_sched_reply_match_t reply_match;
+	const void *reply_match_data;
 	const char *tag;
 };
 
@@ -56,6 +62,7 @@ struct motor_can_sched_periodic {
 
 	uint16_t phase_tick;
 	uint16_t period_ticks;
+	uint16_t cost_us;
 	uint32_t next_release_tick;
 };
 
@@ -86,6 +93,8 @@ struct motor_can_sched_tx_param {
 	uint8_t max_retries;
 	uint32_t reply_id;
 	uint32_t reply_mask;
+	motor_can_sched_reply_match_t reply_match;
+	const void *reply_match_data;
 	const char *tag;
 };
 

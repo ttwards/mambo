@@ -1,0 +1,198 @@
+/ {
+	mi_motor {
+		motor0: motor0{
+			compatible = "mi,motor";
+			id = <1>;
+			rx_id = <0x01>;
+			tx_id = <0x01>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit_pid_0 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor1: motor1{
+			compatible = "mi,motor";
+			id = <2>;
+			rx_id = <0x02>;
+			tx_id = <0x02>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit_pid_1 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor2: motor2{
+			compatible = "mi,motor";
+			id = <3>;
+			rx_id = <0x03>;
+			tx_id = <0x03>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_2 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor3: motor3{
+			compatible = "mi,motor";
+			id = <9>;
+			rx_id = <0x09>;
+			tx_id = <0x09>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_3 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+		
+		motor4: motor4{
+			compatible = "mi,motor";
+			id = <5>;
+			rx_id = <0x05>;
+			tx_id = <0x05>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit_pid_4 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor5: motor5{
+			compatible = "mi,motor";
+			id = <6>;
+			rx_id = <0x06>;
+			tx_id = <0x06>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit_pid_5 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor6: motor6{
+			compatible = "mi,motor";
+			id = <7>;
+			rx_id = <0x07>;
+			tx_id = <0x07>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_6 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		motor7: motor7{
+			compatible = "mi,motor";
+			id = <10>;
+			rx_id = <0x0a>;
+			tx_id = <0x0a>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_7 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+		motor8: motor8{
+			compatible = "mi,motor";
+			id = <11>;
+			rx_id = <0x0b>;
+			tx_id = <0x0b>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_8 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+	};
+	sbus0: sbus0 {
+		compatible = "ares,sbus";
+		status = "okay";
+	};
+	pid {
+		mit_pid_0: mit_pid_0 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_1: mit_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_2: mit_pid_2 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_3: mit_pid_3 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_4: mit_pid_4 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_5: mit_pid_5 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_6: mit_pid_6 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_7: mit_pid_7 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "25";
+			k_i = "0.0";
+			k_d = "0.5";
+		};
+		mit_pid_8: mit_pid_8 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "40";
+			k_i = "0.0";
+			k_d = "0.8";
+		};
+		
+		angle_pid_1: angle_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "20";
+			k_i = "0.1";
+			k_d = "2";
+		};
+		speed_pid_1: speed_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "20";
+			k_i = "0.1";
+			k_d = "2";
+		};
+	};
+};
+
+&cdc_acm_uart0 {
+	status = "disabled";
+};

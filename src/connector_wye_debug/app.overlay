@@ -1,0 +1,34 @@
+/ {
+	dji_motor {
+		connector_wye_motor: connector_wye_motor {
+			compatible = "dji,motor";
+			is_m2006;
+			id = <1>;
+			rx_id = <0x201>;
+			tx_id = <0x200>;
+			gear_ratio = "36.00";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&m2006_angle_pid &m2006_speed_pid>;
+			capabilities = "angle", "speed";
+		};
+	};
+
+	pid {
+		m2006_angle_pid: m2006_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "5";
+			k_i = "0.0";
+			k_d = "0.1";
+		};
+
+		m2006_speed_pid: m2006_speed_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.2";
+			k_i = "0.0";
+			k_d = "0.02";
+		};
+	};
+};

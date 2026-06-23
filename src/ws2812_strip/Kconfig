@@ -1,0 +1,25 @@
+# WS2812B LED Strip Kconfig
+
+menuconfig WS2812_STRIP
+	bool "WS2812B LED Strip support"
+	select LED_STRIP
+	help
+	  Enable WS2812B (and compatible) LED strip support via SPI.
+	  Requires the worldsemi,ws2812-spi compatible node in the
+	  device tree (see dts/ws2812_strip.overlay for an example).
+
+if WS2812_STRIP
+
+config WS2812_STRIP_NUM_LEDS
+	int "Number of LEDs in the strip"
+	default 8
+	help
+	  Maximum number of addressable LEDs in the daisy chain.
+
+config WS2812_STRIP_LOG_LEVEL
+	int "WS2812 Strip log level"
+	default 3
+	help
+	  Log level for the WS2812 strip module (0=none, 1=err, 2=wrn, 3=inf, 4=dbg).
+
+endif # WS2812_STRIP

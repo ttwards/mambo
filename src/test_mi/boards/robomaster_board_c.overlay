@@ -1,0 +1,45 @@
+/ {
+	mi_motor {
+		motor0: motor0{
+			compatible = "mi,motor";
+            
+			id = <1>;
+            rx_id = <0x01>;
+            tx_id = <0x01>;
+			gear_ratio = "7.75";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit_pid_1 &angle_pid_1 &speed_pid_1>;
+			capabilities = "mit","pv", "vo";
+		};
+
+		
+	};
+
+	pid {
+		mit_pid_1: mit_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "7";
+			k_i = "0.1";
+			k_d = "0.5";
+		};
+		angle_pid_1: angle_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "1";
+			k_i = "0.0";
+			k_d = "0.008";
+		};
+		speed_pid_1: speed_pid_1 {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "1";
+			k_i = "0.0";
+			k_d = "0.08";
+		};
+		
+	};
+	
+};
+

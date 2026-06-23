@@ -1,0 +1,7 @@
+&cdc_acm_uart0 {
+	status = "disabled";
+};
+
+&usart6 {
+	status = "disabled";
+};

@@ -66,9 +66,11 @@ struct dm_motor_data {
 	float target_radps;
 	float target_torque;
 
-	int16_t RAWangle;
-	int16_t RAWrpm;
-	int16_t RAWtorque;
+	uint16_t RAWangle;
+	uint16_t RAWrpm;
+	uint16_t RAWtorque;
+	uint8_t RAWmos_temp;
+	uint8_t RAWrotor_temp;
 
 	struct pid_config params;
 
@@ -145,9 +147,9 @@ K_TIMER_DEFINE(dm_tx_timer, dm_tx_isr_handler, NULL);
 #define DMMOTOR_CONFIG_INST(inst)                                                                  \
 	static const struct dm_motor_config dm_motor_cfg_##inst = {                                \
 		.common = MOTOR_DT_DRIVER_CONFIG_INST_GET(inst),                                   \
-		.v_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 12.5),             \
-		.p_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 20),               \
-		.t_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), t_max, 200),              \
+		.v_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 30),             \
+		.p_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), p_max, 30),               \
+		.t_max = (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), t_max, 10),              \
 		.freq = (float)DT_PROP_OR(DT_DRV_INST(inst), freq, 500),                           \
 	};
 

@@ -1,0 +1,67 @@
+/ {
+	motor {
+		dm_motor0: dm_motor0 {
+			compatible = "dm,motor";
+			id = <1>;
+			rx_id = <0x1A>;
+			tx_id = <0x0A>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+
+		dm_motor1: dm_motor1 {
+			compatible = "dm,motor";
+			id = <2>;
+			rx_id = <0x1B>;
+			tx_id = <0x0B>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+
+		dm_motor2: dm_motor2 {
+			compatible = "dm,motor";
+			id = <3>;
+			rx_id = <0x1C>;
+			tx_id = <0x0C>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&mit>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+
+		dm_motor3: dm_motor3 {
+			compatible = "dm,motor";
+			id = <4>;
+			rx_id = <0x1D>;
+			tx_id = <0x0D>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&mit>;
+			capabilities = "mit";
+			t_max = "5";
+			freq = <1000>;
+		};
+	};
+
+	pid {
+		mit: mit {
+			compatible = "pid,single";
+			k_p = "5.0";
+			k_d = "1.0";
+		};
+	};
+};

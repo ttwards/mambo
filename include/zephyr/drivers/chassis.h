@@ -53,6 +53,7 @@ typedef struct {
 
 	float angle_to_center[CHASSIS_WHEEL_COUNT];
 	float distance_to_center[CHASSIS_WHEEL_COUNT];
+	float last_wheel_angle[CHASSIS_WHEEL_COUNT];
 
 	chassis_status_t chassis_status;
 	chassis_status_t set_status;

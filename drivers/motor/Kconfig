@@ -14,11 +14,23 @@ module = MOTOR
 module-str = MOTOR
 source "subsys/logging/Kconfig.template.log_config"
 
+config LA_YINSHI
+	bool "MOTOR LA YINSHI"
+	help
+	  Add support for Yinshi LA series electric cylinders
+	select SERIAL
+
 config MOTOR_COMMON
     bool "MOTOR COMMON"
     help
       Add support for common motor drivers
 	select CAN
+
+config MOTOR_CAN_SCHED
+    bool "Motor CAN scheduler backend"
+    help
+      Enable the shared CAN scheduler backend for motor drivers.
+    select MOTOR_COMMON
 
 config MOTOR_DJI
     bool "MOTOR DJI"
@@ -61,6 +73,13 @@ config MOTOR_LK
     select PID
     select MOTOR_COMMON
 
+config MOTOR_LK_TEST
+    bool "MOTOR LK TEST"
+    help
+      Add support for the LK scheduler-based test driver.
+    select PID
+    select MOTOR_CAN_SCHED
+
 config MOTOR_LOG_LEVEL
     int "Motor log level"
     default 4
@@ -78,4 +97,7 @@ config CAN_COUNT
     default 2
     help
       The number of CAN devices
+
+rsource "la_yinshi/Kconfig"
+
 endif

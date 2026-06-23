@@ -1,0 +1,14 @@
+
+
+&spi2 {
+    status = "okay";
+    dmas = <&dma1 3 0 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH) 0>,
+		   <&dma1 4 0 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH) 0>;
+    pinctrl-0=<&spi2_mosi_pb15
+			&spi2_miso_pb14
+			&spi2_sck_pb13
+			 &spi2_nss_pb12
+			>;
+    // cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>; 
+    dma-names = "rx", "tx";
+};

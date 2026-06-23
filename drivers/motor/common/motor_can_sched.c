@@ -1,6 +1,7 @@
 #include "motor_can_sched.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -9,7 +10,6 @@
 LOG_MODULE_REGISTER(motor_can_sched, LOG_LEVEL_INF);
 
 #define MOTOR_CAN_SCHED_TICK_HZ       1000U
-#define MOTOR_CAN_SCHED_TICK_US       1000U
 #define MOTOR_CAN_SCHED_LOG_WINDOW_MS 2000U
 #define MOTOR_CAN_SCHED_SUPERFRAME    1000U
 #define MOTOR_CAN_SCHED_STACK_SIZE    2048
@@ -34,6 +34,8 @@ struct motor_can_sched_pending {
 	struct motor_can_sched_entry entry;
 	uint32_t reply_id;
 	uint32_t reply_mask;
+	motor_can_sched_reply_match_t reply_match;
+	const void *reply_match_data;
 	uint32_t deadline_ms;
 	uint32_t sent_at_ms;
 };
@@ -44,8 +46,14 @@ struct motor_can_sched_bus {
 	struct motor_can_sched_pending pending[MOTOR_CAN_SCHED_MAX_PENDING];
 	struct motor_can_sched_stats stats;
 	uint16_t phase_load[MOTOR_CAN_SCHED_SUPERFRAME];
+	struct motor_can_sched_entry tx_entry;
+	struct motor_can_sched_pending *tx_pending;
+	uint64_t next_tx_ready_cyc;
 	uint32_t last_log_ms;
+	int tx_error;
 	bool started;
+	bool tx_in_flight;
+	bool tx_complete_pending;
 };
 
 static struct motor_can_sched_bus sched_buses[MOTOR_CAN_SCHED_MAX_BUS];
@@ -56,6 +64,7 @@ struct motor_can_sched_handle {
 };
 static struct motor_can_sched_handle sched_handles[MOTOR_CAN_SCHED_MAX_PERIODIC];
 static struct k_spinlock sched_lock;
+static K_SEM_DEFINE(sched_sem, 0, UINT_MAX);
 static struct k_thread sched_thread;
 static K_THREAD_STACK_DEFINE(sched_stack, MOTOR_CAN_SCHED_STACK_SIZE);
 static bool sched_initialized;
@@ -111,8 +120,24 @@ static struct motor_can_sched_meta meta_from_param(const struct can_frame *frame
 	meta.max_retries = param->max_retries != 0U ? param->max_retries : 1U;
 	meta.reply_id = param->reply_id;
 	meta.reply_mask = param->reply_mask != 0U ? param->reply_mask : CAN_STD_ID_MASK;
+	meta.reply_match = param->reply_match;
+	meta.reply_match_data = param->reply_match_data;
 	meta.tag = param->tag != NULL ? param->tag : "frame";
 	return meta;
+}
+
+static bool reply_matches(const struct motor_can_sched_pending *pending,
+			  const struct can_frame *frame)
+{
+	if ((frame->id & pending->reply_mask) != (pending->reply_id & pending->reply_mask)) {
+		return false;
+	}
+
+	if (pending->reply_match != NULL) {
+		return pending->reply_match(&pending->entry.frame, frame, pending->reply_match_data);
+	}
+
+	return true;
 }
 
 static struct motor_can_sched_handle *alloc_handle_locked(void)
@@ -140,6 +165,11 @@ static bool time_reached(uint32_t now, uint32_t deadline)
 	return (int32_t)(now - deadline) >= 0;
 }
 
+static bool cycle_reached(uint64_t now, uint64_t deadline)
+{
+	return (int64_t)(now - deadline) >= 0;
+}
+
 static uint16_t frame_cost_us(const struct can_frame *frame, const struct motor_can_sched_meta *meta)
 {
 	uint16_t cost = frame_time_us(frame->flags);
@@ -155,6 +185,24 @@ static uint16_t frame_cost_us(const struct can_frame *frame, const struct motor_
 	}
 
 	return cost;
+}
+
+static uint16_t reply_reserve_us(const struct motor_can_sched_entry *entry)
+{
+	if (entry->meta.reply_reserve_us != 0U) {
+		return entry->meta.reply_reserve_us;
+	}
+
+	if (entry->meta.expect_reply) {
+		return frame_time_us(entry->frame.flags);
+	}
+
+	return 0U;
+}
+
+static void wake_scheduler(void)
+{
+	k_sem_give(&sched_sem);
 }
 
 static bool ring_push(struct motor_can_sched_ring *ring, const struct motor_can_sched_entry *entry)
@@ -299,6 +347,8 @@ static int reserve_pending_locked(struct motor_can_sched_bus *bus,
 			bus->pending[i].entry = *entry;
 			bus->pending[i].reply_id = entry->meta.reply_id;
 			bus->pending[i].reply_mask = entry->meta.reply_mask;
+			bus->pending[i].reply_match = entry->meta.reply_match;
+			bus->pending[i].reply_match_data = entry->meta.reply_match_data;
 			bus->pending[i].deadline_ms =
 				k_uptime_get_32() + MAX(entry->meta.ack_timeout_ms, 1U);
 			bus->pending[i].sent_at_ms = k_uptime_get_32();
@@ -317,6 +367,21 @@ static void clear_pending_locked(struct motor_can_sched_pending *pending)
 	}
 }
 
+static void can_sched_tx_done(const struct device *can_dev, int error, void *user_data)
+{
+	struct motor_can_sched_bus *bus = user_data;
+	k_spinlock_key_t key;
+
+	ARG_UNUSED(can_dev);
+
+	key = k_spin_lock(&sched_lock);
+	bus->tx_error = error;
+	bus->tx_complete_pending = true;
+	k_spin_unlock(&sched_lock, key);
+
+	wake_scheduler();
+}
+
 static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entry *entry)
 {
 	struct motor_can_sched_pending *pending = NULL;
@@ -330,12 +395,21 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 			entry->meta.tag != NULL ? entry->meta.tag : "frame");
 		return ret;
 	}
+	bus->tx_entry = *entry;
+	bus->tx_pending = pending;
+	bus->tx_in_flight = true;
+	bus->tx_complete_pending = false;
+	bus->tx_error = 0;
 	k_spin_unlock(&sched_lock, key);
 
-	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, NULL, NULL);
+	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, can_sched_tx_done, bus);
 	if (ret != 0) {
 		key = k_spin_lock(&sched_lock);
 		clear_pending_locked(pending);
+		bus->tx_pending = NULL;
+		bus->tx_in_flight = false;
+		bus->tx_complete_pending = false;
+		bus->tx_error = ret;
 		requeue_entry_locked(bus, entry);
 		k_spin_unlock(&sched_lock, key);
 		if (entry->meta.trace_lifecycle) {
@@ -347,16 +421,9 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 	}
 
 	key = k_spin_lock(&sched_lock);
-	if (pending != NULL) {
-		pending->sent_at_ms = k_uptime_get_32();
-	}
 	bus->stats.tx_frames++;
 	bus->stats.window_tx_busy_us += frame_time_us(entry->frame.flags);
-	if (entry->meta.reply_reserve_us != 0U) {
-		bus->stats.window_reserved_us += entry->meta.reply_reserve_us;
-	} else if (entry->meta.expect_reply) {
-		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
-	}
+	bus->stats.window_reserved_us += reply_reserve_us(entry);
 	if (entry->meta.has_periodic_reply) {
 		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
 	}
@@ -367,13 +434,6 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 			bus->can_dev->name, entry->trace_id,
 			entry->meta.tag != NULL ? entry->meta.tag : "frame", entry->frame.id,
 			entry->meta.expect_reply ? 1U : 0U, entry->retries, entry->meta.reply_reserve_us);
-	}
-
-	k_busy_wait(frame_time_us(entry->frame.flags));
-	if (entry->meta.reply_reserve_us != 0U) {
-		k_busy_wait(entry->meta.reply_reserve_us);
-	} else if (entry->meta.expect_reply) {
-		k_busy_wait(frame_time_us(entry->frame.flags));
 	}
 
 	return 0;
@@ -434,9 +494,12 @@ static void release_periodic_locked(void)
 			continue;
 		}
 
-		while ((int32_t)(sched_tick - job->next_release_tick) >= 0) {
+		if ((int32_t)(sched_tick - job->next_release_tick) >= 0) {
+			uint32_t missed_periods =
+				((sched_tick - job->next_release_tick) / job->period_ticks) + 1U;
+
 			queue_entry_locked(job->can_dev, &job->frame, &job->meta, 0U);
-			job->next_release_tick += job->period_ticks;
+			job->next_release_tick += missed_periods * job->period_ticks;
 		}
 	}
 }
@@ -475,9 +538,102 @@ static void log_window_if_needed(struct motor_can_sched_bus *bus)
 	bus->stats.window_reserved_us = 0U;
 }
 
+static void process_tx_complete_locked(struct motor_can_sched_bus *bus, uint64_t now_cyc)
+{
+	uint16_t reserve_us;
+
+	if (!bus->tx_complete_pending) {
+		return;
+	}
+
+	reserve_us = reply_reserve_us(&bus->tx_entry);
+	if (bus->tx_error != 0) {
+		if (bus->tx_pending != NULL) {
+			struct motor_can_sched_pending *pending = bus->tx_pending;
+			struct motor_can_sched_entry retry_entry = pending->entry;
+
+			if (retry_entry.retries < retry_entry.meta.max_retries) {
+				retry_entry.retries++;
+				retry_entry.meta.priority = MOTOR_CAN_SCHED_PRIO_HIGH;
+				if (requeue_entry_locked(bus, &retry_entry) == 0) {
+					bus->stats.retry_frames++;
+				}
+			} else {
+				bus->stats.dropped_frames++;
+			}
+			clear_pending_locked(pending);
+		}
+
+		if (bus->tx_entry.meta.trace_lifecycle) {
+			LOG_WRN("%s tx complete err seq=%u tag=%s id=0x%03x err=%d",
+				bus->can_dev->name, bus->tx_entry.trace_id,
+				bus->tx_entry.meta.tag != NULL ? bus->tx_entry.meta.tag : "frame",
+				bus->tx_entry.frame.id, bus->tx_error);
+		}
+
+		bus->tx_pending = NULL;
+		bus->tx_in_flight = false;
+		bus->tx_complete_pending = false;
+		bus->tx_error = 0;
+		bus->next_tx_ready_cyc = now_cyc;
+		return;
+	}
+
+	if (reserve_us != 0U) {
+		bus->next_tx_ready_cyc = now_cyc + k_us_to_cyc_ceil64(reserve_us);
+	} else {
+		bus->next_tx_ready_cyc = now_cyc;
+	}
+
+	bus->tx_pending = NULL;
+	bus->tx_in_flight = false;
+	bus->tx_complete_pending = false;
+	bus->tx_error = 0;
+}
+
+static bool bus_has_queued_locked(const struct motor_can_sched_bus *bus)
+{
+	for (size_t prio = 0; prio < MOTOR_CAN_SCHED_PRIO_COUNT; prio++) {
+		if (bus->rings[prio].count != 0U) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static k_timeout_t scheduler_wait_timeout(uint32_t next_wake_ms, bool has_work,
+					  uint64_t earliest_tx_ready_cyc)
+{
+	uint32_t now_ms = k_uptime_get_32();
+	uint32_t wait_ms = 1U;
+
+	if (time_reached(now_ms, next_wake_ms)) {
+		return K_NO_WAIT;
+	}
+
+	wait_ms = next_wake_ms - now_ms;
+	if (has_work) {
+		uint64_t now_cyc = k_cycle_get_64();
+		uint64_t wait_us;
+
+		if (cycle_reached(now_cyc, earliest_tx_ready_cyc)) {
+			return K_NO_WAIT;
+		}
+
+		wait_us = k_cyc_to_us_floor64(earliest_tx_ready_cyc - now_cyc);
+		if (wait_us < 1000U) {
+			return K_USEC(MAX(1U, (uint32_t)wait_us));
+		}
+		wait_ms = MIN(wait_ms, (uint32_t)(wait_us / 1000U));
+	}
+
+	return K_MSEC(wait_ms);
+}
+
 static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 {
-	uint32_t next_wake = k_uptime_get_32();
+	uint32_t next_wake = k_uptime_get_32() + 1U;
 
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
@@ -485,9 +641,11 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 
 	while (1) {
 		struct motor_can_sched_entry entry;
+		uint64_t earliest_tx_ready_cyc = UINT64_MAX;
+		bool has_work = false;
+		uint32_t now = k_uptime_get_32();
 
-		next_wake += 1U;
-		sched_tick++;
+		sched_tick = now;
 
 		k_spinlock_key_t key = k_spin_lock(&sched_lock);
 		release_periodic_locked();
@@ -496,17 +654,31 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 
 		for (size_t bus_idx = 0; bus_idx < ARRAY_SIZE(sched_buses); bus_idx++) {
 			struct motor_can_sched_bus *bus = &sched_buses[bus_idx];
-			uint32_t budget_us = MOTOR_CAN_SCHED_TICK_US;
 
 			if (bus->can_dev == NULL) {
 				continue;
 			}
 
-			while (budget_us > 0U) {
+			key = k_spin_lock(&sched_lock);
+			process_tx_complete_locked(bus, k_cycle_get_64());
+			k_spin_unlock(&sched_lock, key);
+
+			while (1) {
 				bool found = false;
-				uint16_t cost_us = 0U;
 
 				key = k_spin_lock(&sched_lock);
+				if (bus->tx_in_flight || !cycle_reached(k_cycle_get_64(),
+									bus->next_tx_ready_cyc)) {
+					if (!bus->tx_in_flight && bus_has_queued_locked(bus)) {
+						has_work = true;
+						earliest_tx_ready_cyc =
+							MIN(earliest_tx_ready_cyc,
+							    bus->next_tx_ready_cyc);
+					}
+					k_spin_unlock(&sched_lock, key);
+					break;
+				}
+
 				for (size_t prio = 0; prio < MOTOR_CAN_SCHED_PRIO_COUNT; prio++) {
 					if (ring_pop(&bus->rings[prio], &entry)) {
 						found = true;
@@ -519,19 +691,11 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 					break;
 				}
 
-				cost_us = frame_cost_us(&entry.frame, &entry.meta);
-				if (cost_us > budget_us) {
-					key = k_spin_lock(&sched_lock);
-					requeue_entry_locked(bus, &entry);
-					k_spin_unlock(&sched_lock, key);
-					break;
-				}
-
 				if (send_one(bus, &entry) != 0) {
 					break;
 				}
 
-				budget_us -= cost_us;
+				break;
 			}
 
 			key = k_spin_lock(&sched_lock);
@@ -539,14 +703,10 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 			k_spin_unlock(&sched_lock, key);
 		}
 
-		uint32_t now = k_uptime_get_32();
-
-		if ((int32_t)(next_wake - now) > 0) {
-			k_msleep(next_wake - now);
-		} else {
-			next_wake = now;
-			k_yield();
-		}
+		next_wake = now + 1U;
+		(void)k_sem_take(&sched_sem,
+				 scheduler_wait_timeout(next_wake, has_work,
+							earliest_tx_ready_cyc));
 	}
 }
 
@@ -556,7 +716,7 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 	uint16_t best_phase = 0U;
 	uint32_t best_score = UINT32_MAX;
 	uint16_t period_ticks = job->period_ticks;
-	uint16_t cost = frame_cost_us(&job->frame, &job->meta);
+	uint16_t cost = job->cost_us;
 
 	for (uint16_t phase = 0U; phase < period_ticks; phase++) {
 		uint32_t peak = 0U;
@@ -580,6 +740,24 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 	}
 
 	return best_phase;
+}
+
+static void release_phase_load_locked(struct motor_can_sched_bus *bus,
+				      const struct motor_can_sched_periodic *job)
+{
+	if ((bus == NULL) || (job == NULL) || (job->period_ticks == 0U) ||
+	    (job->cost_us == 0U)) {
+		return;
+	}
+
+	for (uint16_t slot = job->phase_tick; slot < MOTOR_CAN_SCHED_SUPERFRAME;
+	     slot += job->period_ticks) {
+		if (bus->phase_load[slot] >= job->cost_us) {
+			bus->phase_load[slot] -= job->cost_us;
+		} else {
+			bus->phase_load[slot] = 0U;
+		}
+	}
 }
 
 int motor_can_sched_init(void)
@@ -624,6 +802,7 @@ int motor_can_sched_register_can(const struct device *can_dev)
 		LOG_INF("scheduler attached %s", can_dev->name);
 	}
 
+	wake_scheduler();
 	return 0;
 }
 
@@ -645,6 +824,9 @@ static int motor_can_sched_submit(const struct device *can_dev, const struct can
 	key = k_spin_lock(&sched_lock);
 	ret = queue_entry_locked(can_dev, frame, meta, 0U);
 	k_spin_unlock(&sched_lock, key);
+	if (ret == 0) {
+		wake_scheduler();
+	}
 	return ret;
 }
 
@@ -662,6 +844,7 @@ static int motor_can_sched_add_periodic(struct motor_can_sched_periodic *job)
 	}
 
 	job->period_ticks = MAX(1U, DIV_ROUND_CLOSEST(MOTOR_CAN_SCHED_TICK_HZ, job->rate_hz));
+	job->cost_us = frame_cost_us(&job->frame, &job->meta);
 
 	key = k_spin_lock(&sched_lock);
 	bus = register_bus_locked(job->can_dev);
@@ -689,6 +872,7 @@ static int motor_can_sched_add_periodic(struct motor_can_sched_periodic *job)
 				job->rate_hz, job->phase_tick, job->period_ticks,
 				job->meta.expect_reply ? 1U : 0U);
 			k_spin_unlock(&sched_lock, key);
+			wake_scheduler();
 			return 0;
 		}
 	}
@@ -708,9 +892,13 @@ static int motor_can_sched_remove_periodic(struct motor_can_sched_periodic *job)
 	key = k_spin_lock(&sched_lock);
 	for (size_t i = 0; i < ARRAY_SIZE(periodic_jobs); i++) {
 		if (periodic_jobs[i] == job) {
+			struct motor_can_sched_bus *bus = find_bus(job->can_dev);
+
+			release_phase_load_locked(bus, job);
 			periodic_jobs[i] = NULL;
 			job->enabled = false;
 			k_spin_unlock(&sched_lock, key);
+			wake_scheduler();
 			return 0;
 		}
 	}
@@ -723,12 +911,27 @@ static int motor_can_sched_update_periodic_frame(struct motor_can_sched_periodic
 						 const struct can_frame *frame)
 {
 	k_spinlock_key_t key;
+	uint16_t new_cost;
 
 	if ((job == NULL) || (frame == NULL)) {
 		return -EINVAL;
 	}
 
+	new_cost = frame_cost_us(frame, &job->meta);
+
 	key = k_spin_lock(&sched_lock);
+	if (new_cost != job->cost_us) {
+		struct motor_can_sched_bus *bus = find_bus(job->can_dev);
+
+		release_phase_load_locked(bus, job);
+		job->cost_us = new_cost;
+		if ((bus != NULL) && (job->period_ticks != 0U)) {
+			for (uint16_t slot = job->phase_tick; slot < MOTOR_CAN_SCHED_SUPERFRAME;
+			     slot += job->period_ticks) {
+				bus->phase_load[slot] += job->cost_us;
+			}
+		}
+	}
 	job->frame = *frame;
 	k_spin_unlock(&sched_lock, key);
 	return 0;
@@ -759,7 +962,7 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 		if (!pending->used) {
 			continue;
 		}
-		if ((frame->id & pending->reply_mask) == (pending->reply_id & pending->reply_mask)) {
+		if (reply_matches(pending, frame)) {
 			uint32_t rtt_ms = k_uptime_get_32() - pending->sent_at_ms;
 
 			bus->stats.ack_matches++;
@@ -768,6 +971,9 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 					bus->can_dev->name, pending->entry.trace_id,
 					pending->entry.meta.tag != NULL ? pending->entry.meta.tag : "frame",
 					pending->entry.frame.id, frame->id, rtt_ms, pending->entry.retries);
+			}
+			if (bus->tx_pending == pending) {
+				bus->tx_pending = NULL;
 			}
 			memset(pending, 0, sizeof(*pending));
 			break;

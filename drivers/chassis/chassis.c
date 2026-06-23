@@ -46,6 +46,7 @@ int cchassis_init(const struct device *dev)
 		arm_atan2_f32(cfg->pos_Y_offset[idx], cfg->pos_X_offset[idx], &arc);
 
 		data->angle_to_center[idx] = -RAD2DEG(arc) + 90.0f;
+		data->last_wheel_angle[idx] = data->angle_to_center[idx];
 		arm_sqrt_f32(cfg->pos_X_offset[idx] * cfg->pos_X_offset[idx] +
 				     cfg->pos_Y_offset[idx] * cfg->pos_Y_offset[idx],
 			     &data->distance_to_center[idx]);
@@ -71,8 +72,14 @@ void cchassis_set_angle(const struct device *dev, float angle)
 void cchassis_set_speed(const struct device *dev, float x_speed, float y_speed)
 {
 	chassis_data_t *data = dev->data;
-	data->target_status.speedX = x_speed;
-	data->target_status.speedY = y_speed;
+	/*
+	 * Public chassis API uses the standard robot frame:
+	 *   +X forward, +Y left.
+	 * The existing steerwheel geometry uses:
+	 *   +X right, +Y forward.
+	 */
+	data->target_status.speedX = -y_speed;
+	data->target_status.speedY = x_speed;
 }
 
 void cchassis_set_gyro(const struct device *dev, float gyro)
@@ -132,10 +139,17 @@ void cchassis_resolve(chassis_data_t *data, const chassis_cfg_t *cfg)
 		}
 		float steerwheel_speed;
 		arm_sqrt_f32(speedX * speedX + speedY * speedY, &steerwheel_speed);
+		if (steerwheel_speed < 0.0001f) {
+			wheel_set_speed(cfg->wheels[idx], 0.0f, data->last_wheel_angle[idx]);
+			k_sleep(K_USEC(130));
+			continue;
+		}
+
 		float steerwheel_angle = 0;
 		arm_atan2_f32(speedY, speedX, &steerwheel_angle);
 
 		steerwheel_angle = -RAD2DEG(steerwheel_angle) + 90.0f;
+		data->last_wheel_angle[idx] = steerwheel_angle;
 
 		wheel_set_speed(cfg->wheels[idx], steerwheel_speed, steerwheel_angle);
 		k_sleep(K_USEC(130));

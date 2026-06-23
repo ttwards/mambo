@@ -179,6 +179,7 @@ int dm_get(const struct device *dev, motor_status_t *status)
 	status->angle = data->common.angle;
 	status->rpm = data->common.rpm;
 	status->torque = data->common.torque;
+	status->temperature = data->common.temperature;
 
 	status->mode = data->common.mode;
 	status->sum_angle = data->delta_deg_sum;
@@ -198,9 +199,11 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 
 	data->err = frame->data[0] >> 4;
 	data->enabled = data->err & 1;
-	data->RAWangle = (frame->data[1] << 8) | (frame->data[2]);
-	data->RAWrpm = (frame->data[3] << 4) | (frame->data[4] >> 4);
-	data->RAWtorque = (frame->data[4] & 0xF) << 8;
+	data->RAWangle = ((uint16_t)frame->data[1] << 8) | frame->data[2];
+	data->RAWrpm = ((uint16_t)frame->data[3] << 4) | (frame->data[4] >> 4);
+	data->RAWtorque = (((uint16_t)frame->data[4] & 0x0FU) << 8) | frame->data[5];
+	data->RAWmos_temp = frame->data[6];
+	data->RAWrotor_temp = frame->data[7];
 	data->update = true;
 
 	if (data->enable && !data->online) {
@@ -347,6 +350,7 @@ void dm_rx_data_handler(struct k_work *work)
 		data->common.rpm =
 			RADPS2RPM(uint_to_float(data->RAWrpm, -cfg->v_max, cfg->v_max, 12));
 		data->common.torque = uint_to_float(data->RAWtorque, -cfg->t_max, cfg->t_max, 12);
+		data->common.temperature = (float)data->RAWrotor_temp;
 
 		data->delta_deg_sum += data->common.angle - prev_angle;
 

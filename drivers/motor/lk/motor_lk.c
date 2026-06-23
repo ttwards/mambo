@@ -85,16 +85,16 @@ void lk_motor_control(const struct device *dev, enum motor_cmd cmd)
 		break;
 	case SET_ZERO:
 		// 设置当前位置为零点 (写入ROM)
-		// frame.data[0] = LK_CMD_SET_ZERO_ROM;
-		// can_send_queued(cfg->common.phy, &frame);
+		frame.data[0] = LK_CMD_SET_ZERO_ROM;
+		can_send_queued(cfg->common.phy, &frame);
 
 		// 设置当前位置为零点
-		frame.data[0] = LK_CMD_SET_ZERO; // 0x95
-		int32_t set_angle = 180;
-		frame.data[4] = ((uint32_t)(set_angle * LK_POS_FACTOR)) & 0xFF;
-		frame.data[5] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 8) & 0xFF;
-		frame.data[6] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 16) & 0xFF;
-		frame.data[7] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 24) & 0xFF;
+		// frame.data[0] = LK_CMD_SET_ZERO; // 0x95
+		// int32_t set_angle = 180;
+		// frame.data[4] = ((uint32_t)(set_angle * LK_POS_FACTOR)) & 0xFF;
+		// frame.data[5] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 8) & 0xFF;
+		// frame.data[6] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 16) & 0xFF;
+		// frame.data[7] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 24) & 0xFF;
 		can_send_queued(cfg->common.phy, &frame);
 		break;
 	case CLEAR_ERROR:
@@ -284,6 +284,7 @@ static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	if (!data->online) {
 		data->missed_times = 0;
 		data->online = true;
+		data->need_init_frames = true;
 		LOG_INF("Motor [%d] ONLINE (Feedback restored)", cfg->id);
 	}
 	// Data[0]: 命令字节
@@ -343,21 +344,48 @@ void lk_tx_data_handler(struct k_work *work)
 		if (data->enabled) {
 			if (data->missed_times > 10 && data->online) {
 				LOG_ERR("Motor [%d] OFFLINE (No feedback)", cfg->id);
-
 				data->online = false;
+				data->offline_tx_cnt = 0;
 			}
 			if (data->missed_times < 100) {
 				data->missed_times++;
 			}
-			// if( !data->online) {
-			// 	continue;
-			// }
+
+			if (!data->online) {
+				/* Offline: send enable frame at ~50Hz */
+				if (data->offline_tx_cnt >= 3) {
+					tx_frame.id = LK_CMD_ID_BASE + cfg->id;
+					tx_frame.dlc = 8;
+					tx_frame.flags = 0;
+					tx_frame.data[0] = LK_CMD_MOTOR_RUN;
+					memset(&tx_frame.data[1], 0, 7);
+					can_send_queued(cfg->common.phy, &tx_frame);
+					data->offline_tx_cnt = 0;
+				}
+				data->offline_tx_cnt++;
+				continue;
+			}
+
+			/* Reconnected: send init frames once */
+			if (data->need_init_frames) {
+				LOG_INF("Motor [%d] sending init frames", cfg->id);
+				tx_frame.id = LK_CMD_ID_BASE + cfg->id;
+				tx_frame.dlc = 8;
+				tx_frame.flags = 0;
+				tx_frame.data[0] = LK_CMD_MOTOR_RUN;
+				memset(&tx_frame.data[1], 0, 7);
+				can_send_queued(cfg->common.phy, &tx_frame);
+				data->pidupdate[0] = true;
+				data->pidupdate[1] = true;
+				data->pidupdate[2] = true;
+				k_work_submit_to_queue(&lk_work_queue, &lk_txpid_data_handle);
+				data->need_init_frames = false;
+				data->offline_tx_cnt = 0;
+			}
+
 			lk_motor_pack(motor_devices[i], &tx_frame);
 			can_send_queued(cfg->common.phy, &tx_frame);
 		}
-		// if (i % 2 == 1) {
-		//     k_usleep(500);
-		// }
 	}
 }
 void lk_txpid_data_handler(struct k_work *work)
@@ -501,7 +529,7 @@ void lk_init_handler(struct k_work *work)
 	}
 	k_work_submit_to_queue(&lk_work_queue, &lk_txpid_data_handle);
 	lk_tx_timer.expiry_fn = lk_tx_isr_handler;
-	k_timer_start(&lk_tx_timer, K_MSEC(600), K_MSEC(4));
+	k_timer_start(&lk_tx_timer, K_MSEC(600), K_MSEC(8));
 	k_timer_user_data_set(&lk_tx_timer, &lk_tx_data_handle);
 }
 

@@ -16,6 +16,7 @@
 		.angleControl = true,                                                              \
 		.angle_to_center = {0.0f},                                                         \
 		.distance_to_center = {0.0f},                                                      \
+		.last_wheel_angle = {0.0f},                                                        \
 		.chassis_sensor_data = {0},                                                        \
 		.enabled = true,                                                                   \
 		.track_angle = DT_PROP(DT_DRV_INST(inst), track_angle),                            \

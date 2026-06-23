@@ -1,0 +1,11 @@
+/ {
+	// servo: servo {
+	// 	compatible = "pwm-servo";
+	// 	pwms = <&pwm0 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+	// 	min-pulse = <PWM_USEC(500)>;
+	// 	max-pulse = <PWM_USEC(2500)>;
+	// };
+};
+
+
+

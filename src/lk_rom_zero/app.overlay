@@ -1,0 +1,73 @@
+/ {
+	motor {
+		motor_steer0: motor_steer0 {
+			compatible = "lk,motor";
+			id = <1>;
+			rx_id = <0x00>;
+			tx_id = <0x01>;
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&steer_angle_pid &steer_speed_pid &steer_torque_pid>;
+			capabilities = "angle", "speed", "torque";
+		};
+
+		motor_steer1: motor_steer1 {
+			compatible = "lk,motor";
+			id = <2>;
+			rx_id = <0x00>;
+			tx_id = <0x02>;
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&steer_angle_pid &steer_speed_pid &steer_torque_pid>;
+			capabilities = "angle", "speed", "torque";
+		};
+
+		motor_steer2: motor_steer2 {
+			compatible = "lk,motor";
+			id = <3>;
+			rx_id = <0x00>;
+			tx_id = <0x03>;
+			status = "okay";
+			can_channel = <&can2>;
+			controllers = <&steer_angle_pid &steer_speed_pid &steer_torque_pid>;
+			capabilities = "angle", "speed", "torque";
+		};
+
+		motor_steer3: motor_steer3 {
+			compatible = "lk,motor";
+			id = <4>;
+			rx_id = <0x00>;
+			tx_id = <0x04>;
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&steer_angle_pid &steer_speed_pid &steer_torque_pid>;
+			capabilities = "angle", "speed", "torque";
+		};
+	};
+
+	pid {
+		steer_angle_pid: steer_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "40";
+			k_i = "0.1";
+			k_d = "5";
+		};
+
+		steer_speed_pid: steer_speed_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "100";
+			k_i = "0.1";
+			k_d = "10";
+		};
+
+		steer_torque_pid: steer_torque_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "150";
+			k_i = "1.0";
+			k_d = "15";
+		};
+	};
+};

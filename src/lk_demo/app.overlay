@@ -1,0 +1,44 @@
+/ {
+	motor {
+		lk_motor: lk_motor{
+			compatible = "lk,motor";
+			id = <4>;
+			rx_id = <0x00>;
+			tx_id = <0x04>;
+			status = "okay";
+			can_channel = <&can1>;
+			controllers = <&wheel_angle_pid &wheel_speed_pid &torque>;
+			capabilities = "angle", "speed", "torque";
+			
+			
+		};
+	};
+	pid {
+		wheel_speed_pid: wheel_speed_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "50";
+			k_i = "1";
+			k_d = "15";
+			
+		};
+
+		wheel_angle_pid: wheel_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "50";
+			k_i = "1";
+			k_d = "15";
+			
+		};
+
+		torque: torque {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "150";
+			k_i = "1";
+			k_d = "15";
+			
+		};
+	};
+};
