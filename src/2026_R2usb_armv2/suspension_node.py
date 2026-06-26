@@ -105,8 +105,8 @@ class SuspensionController(Node):
         self.sub_direction = self.create_subscription(Int32, 'direction', self.direction_cb, 10)
         self.sub_cmd_vel = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 10)
         self.sub_sensor_dist = self.create_subscription(Float32MultiArray, 'sensor_distances', self.dist_cb, 10)
-        self.sub_r0x0201 = self.create_subscription(Float32MultiArray, 'r0x0201', self.hw_status_cb, 10)
-        self.pub_action = self.create_publisher(Float32MultiArray, 't0x0101_action', 10)
+        self.sub_r0x0121 = self.create_subscription(Float32MultiArray, 'r0x0121', self.hw_status_cb, 10)
+        self.pub_action = self.create_publisher(Float32MultiArray, 't0x0111_action', 10)
         self.pub_chassis_vel = self.create_publisher(Twist, 'cmd_vel_chassis', 10)
         self.pub_state = self.create_publisher(Int32, 'current_state', 10)
         # 控制主循环 (100Hz)
@@ -253,7 +253,7 @@ class SuspensionController(Node):
                 self.distance_filtered[i] = sum(self.distance_buffers[i]) / len(self.distance_buffers[i])
 
     def hw_status_cb(self, msg):
-        # r0x0201: [PE_0, PE_1, PE_2, PE_3, H_0, H_1, H_2, H_3]
+        # r0x0121: [PE_0, PE_1, PE_2, PE_3, H_0, H_1, H_2, H_3]
         if len(msg.data) >= 12:
             for i in range(4):
                 current_pe = int(msg.data[i])

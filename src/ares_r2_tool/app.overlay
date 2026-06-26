@@ -91,6 +91,16 @@
 
     };
 
+    linear_actuator {
+        connector_gripper: connector_gripper {
+            compatible = "yinshi,la";
+            uart = <&usart6>;
+            id = <1>;
+            max-retries = <3>;
+            reply-timeout-ms = <5>;
+        };
+    };
+
     pid {
 		rs_mit_pid: rs_mit_pid{
 			#controller-cells = <0>;
@@ -127,6 +137,5 @@
 };
 
 &usart6 {
-	current-speed = <115200>;
+	current-speed = <921600>;
 };
-

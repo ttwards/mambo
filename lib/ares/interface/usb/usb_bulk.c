@@ -38,8 +38,8 @@ struct k_thread processing_thread_data;
 static struct AresInterface *ares_interface;
 
 /* Device and Endpoint definitions */
-#define ARES_USB_VID 0x1209 // Test VID
-#define ARES_USB_PID 0x0001 // Product PID
+#define ARES_USB_VID CONFIG_ARES_USB_VID
+#define ARES_USB_PID CONFIG_ARES_USB_PID
 #define BULK_EP_OUT  0x01   // OUT endpoint address
 #define BULK_EP_IN   0x81   // IN endpoint address
 

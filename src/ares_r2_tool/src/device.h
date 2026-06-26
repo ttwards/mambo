@@ -16,6 +16,7 @@
 #define CONNECTOR_PITCH_MOTOR_NODE DT_NODELABEL(connector_motor1)
 #define CONNECTOR_WYE_MOTOR_NODE   DT_NODELABEL(connector_motor2)
 #define CONNECTOR_ROLL_MOTOR_NODE  DT_NODELABEL(connector_motor3)
+#define CONNECTOR_GRIPPER_NODE     DT_NODELABEL(connector_gripper)
 
 static const struct device *const arm_yaw_motor = DEVICE_DT_GET(ARM_YAW_MOTOR_NODE);
 static const struct device *const arm_zed_motor = DEVICE_DT_GET(ARM_ZED_MOTOR_NODE);
@@ -24,6 +25,7 @@ static const struct device *const arm_pitch_motor = DEVICE_DT_GET(ARM_PITCH_MOTO
 static const struct device *const connector_pitch_motor = DEVICE_DT_GET(CONNECTOR_PITCH_MOTOR_NODE);
 static const struct device *const connector_wye_motor = DEVICE_DT_GET(CONNECTOR_WYE_MOTOR_NODE);
 static const struct device *const connector_roll_motor = DEVICE_DT_GET(CONNECTOR_ROLL_MOTOR_NODE);
+static const struct device *const connector_gripper = DEVICE_DT_GET(CONNECTOR_GRIPPER_NODE);
 
 static const struct device *const arm_motors[] = {
 	arm_yaw_motor,

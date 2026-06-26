@@ -535,7 +535,7 @@ int main(void)
 	run();
 	chassis_set_enabled(chassis, true);
 	chassis_set_gyro(chassis, 0);
-	LOG_INF("2026_R2usb_armv2 started: 0x0101=chassis, 0x0102=height, 0x0201=telem");
+	LOG_INF("2026_R2usb_armv2 started: 0x0111=chassis, 0x0112=height, 0x0121=telem");
 
 	ret = ares_bind_interface(&usb_bulk_interface, &dual_protocol);
 	if (ret < 0) {
@@ -543,11 +543,11 @@ int main(void)
 		return ret;
 	}
 
-	chassis_rx = dual_sync_add(&dual_protocol, 0x0101, chassis_cmd_buf, sizeof(chassis_cmd_buf),
+	chassis_rx = dual_sync_add(&dual_protocol, 0x0111, chassis_cmd_buf, sizeof(chassis_cmd_buf),
 				     (dual_trans_cb_t)chassis_cmd_rx_cb);
-	height_rx = dual_sync_add(&dual_protocol, 0x0102, height_cmd_buf, sizeof(height_cmd_buf),
+	height_rx = dual_sync_add(&dual_protocol, 0x0112, height_cmd_buf, sizeof(height_cmd_buf),
 				    (dual_trans_cb_t)height_cmd_rx_cb);
-	angle_tx = dual_sync_add(&dual_protocol, 0x0201, anglebuf, 48, NULL);
+	angle_tx = dual_sync_add(&dual_protocol, 0x0121, anglebuf, 48, NULL);
 	if (chassis_rx == NULL || height_rx == NULL || angle_tx == NULL) {
 		LOG_ERR("failed to register dual sync packs");
 		return -ENOMEM;

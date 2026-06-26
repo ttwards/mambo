@@ -4,41 +4,40 @@
  * 外部控制复用 ARES dual_protocol 的 SYNC 帧承载(参考 app/relay_comm)，走 USB bulk。
  * "帧头" 即 SYNC ID = 动作对象；payload 首个 uint32 为动作 enum，其后 4 个预留 float32(=0)。
  *
- *   指令帧 (上位机 -> 本板)  head=0x5A5A, ID=动作对象, data={action(u32), f32×4=0}
- *   反馈帧 (本板 -> 上位机)  head=0x5A5A, ID=动作对象, data={action(u32), f32×4=0}
- *   (指令帧与反馈帧共用同一动作对象 ID，靠收/发方向区分)
+ *   指令帧 (上位机 -> 本板)  head=0x5A5A, ID=接收对象, data={action(u32), f32×4=0}
+ *   反馈帧 (本板 -> 上位机)  head=0x5A5A, ID=发送对象, data={action(u32), f32×4=0}
  *
- * 动作对象 ID: 0x0204=connector, 0x0203=arm。
+ * 动作对象 ID: arm rx=0x0211 tx=0x0221, connector/spear rx=0x0212 tx=0x0222。
  * connector 动作 enum: 1=prepare 2=grasp 3=dock_extend 4=dock_release。
  * arm 动作 enum: 1=grasp 2=store_to_body 3=store_on_arm 4=get_body 5=place_mid 6=place_high。
+ * payload 的 4 个 float 为通用参数 reserved[4]；prepare 用 reserved[0]=length(m) 拟合出 wye 角度。
  * 动作异步执行，完成后回发反馈帧(action 字段回显刚完成的动作)。
  */
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/linear_actuator.h>
 #include <zephyr/drivers/motor.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <ares/ares_comm.h>
 #include <ares/interface/usb/usb_bulk.h>
-#include <ares/interface/uart/uart.h>
 #include <ares/protocol/dual/dual_protocol.h>
-#include "ares/protocol/plotter/aresplot_protocol.h"
 
 #include "device.h"
 
 LOG_MODULE_REGISTER(ares_r2_tool, LOG_LEVEL_INF);
 
 /* ---- 动作对象(SYNC ID, 即"帧头")与动作 enum ---- */
-/* connector/spear 动作对象 ID：指令帧与反馈帧共用同一 ID，靠收/发方向区分 */
-#define SYNC_ID_SPEAR 0x0204
-/* arm 动作对象 ID(与协议一致)；arm 动作待补全 */
-#define SYNC_ID_ARM 0x0203
+#define SYNC_ID_ARM_RX   0x0211
+#define SYNC_ID_ARM_TX   0x0221
+#define SYNC_ID_SPEAR_RX 0x0212
+#define SYNC_ID_SPEAR_TX 0x0222
 
 enum spear_cmd {
 	SPEAR_CMD_PREPARE = 1,      /* 张开夹爪、解锁机构、移动到待抓取位姿 */
-	SPEAR_CMD_GRASP = 2,        /* 夹爪闭合抓取矛头(气动待接入) */
+	SPEAR_CMD_GRASP = 2,        /* 电缸夹爪闭合抓取矛头 */
 	SPEAR_CMD_DOCK_EXTEND = 3,  /* 转动 roll，将矛头伸出到准备对接位置 */
-	SPEAR_CMD_DOCK_RELEASE = 4, /* 释放气动夹爪并收回(气动待接入)，不由指令触发 */
+	SPEAR_CMD_DOCK_RELEASE = 4, /* 张开电缸夹爪并收回，不由指令触发 */
 };
 
 enum arm_cmd {
@@ -57,10 +56,17 @@ struct spear_frame {
 };
 
 /* ---- 连接器动作角度(可标定) ---- */
-float connector_wye_center_angle = -800.0f;
+float connector_wye_center_angle = -770.0f;
 float connector_pitch_prepare_angle = 0.0f;
 float connector_roll_zero_angle = 0.0f;
 float connector_roll_prepare_angle = 90.0f;
+
+#define CONNECTOR_GRIPPER_GRASP_POS 1400U
+#define CONNECTOR_GRIPPER_OPEN_POS  2000U
+
+/* prepare 长度(m)→wye 角度(deg) 线性拟合标定点(中位角复用 connector_wye_center_angle) */
+float connector_wye_center_length = 0.2975f; /* 中位角对应长度 */
+float connector_wye_zero_length = 0.067f;    /* 0° 对应长度 */
 
 /* ---- 机械臂动作角度 ---- */
 float yaw_zero_angle = 0.0f;
@@ -71,16 +77,12 @@ float lift_up_angle = 2100.0f;
 
 /* ---- wye 电流监控 ---- */
 /* connector_wye_current: wye(M2006) 电流反馈(以力矩形式给出，∝电流)，由 spear_dock_release
- * 内的循环写入，供外部 plotter 读取。connector_wye_current_threshold 为对接到位的电流阈值。 */
+ * 内的循环写入。connector_wye_current_threshold 为对接到位的电流阈值。 */
 float connector_wye_current = 0.0f;
 float connector_wye_current_threshold = -0.3f;
 
 /* ---- 通信对象 ---- */
 const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
-const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(usart6));
-
-PLOTTER_PROTOCOL_DEFINE(plotter_protocol);
-ARES_UART_INTERFACE_DEFINE(uart_interface);
 
 DUAL_PROPOSE_PROTOCOL_DEFINE(tool_protocol);
 ARES_BULK_INTERFACE_DEFINE(usb_bulk_interface);
@@ -90,6 +92,7 @@ static struct spear_frame spear_done_tx; /* connector 反馈帧 payload */
 static sync_table_t *done_pack;
 
 static enum spear_cmd pending_spear_cmd;
+static float pending_spear_args[4]; /* 指令帧 4 个预留参数的快照 */
 K_SEM_DEFINE(spear_start_sem, 0, 1);
 
 static struct spear_frame arm_cmd_rx;  /* arm 指令帧 payload */
@@ -97,6 +100,8 @@ static struct spear_frame arm_done_tx; /* arm 反馈帧 payload */
 static sync_table_t *arm_done_pack;
 
 static enum arm_cmd pending_arm_cmd;
+static uint32_t arm_grasp_count;
+static bool arm_payload_on_arm;
 K_SEM_DEFINE(arm_start_sem, 0, 1);
 
 /* ---- 心跳 LED ---- */
@@ -182,7 +187,7 @@ void connector_init(void)
 	k_msleep(1000);
 	motor_control(connector_wye_motor, SET_ZERO);
 	k_msleep(1000);
-	motor_set_angle(connector_wye_motor, connector_wye_center_angle);
+	move_traj(connector_wye_motor, 0.0f, connector_wye_center_angle, 500);
 	k_msleep(1000);
 }
 
@@ -229,25 +234,81 @@ static void enable_connector(void)
 	}
 }
 
-/* 行为1：初始化操作，移动到待抓取位姿 */
-void spear_prepare(void)
+static void enable_connector_gripper(void)
+{
+	int ret;
+
+	if (!device_is_ready(connector_gripper)) {
+		LOG_ERR("connector gripper is not ready");
+		while (1) {
+			k_msleep(1000);
+		}
+	}
+
+	ret = la_clear_fault(connector_gripper);
+	if (ret < 0) {
+		LOG_WRN("connector gripper clear fault failed: %d", ret);
+	}
+
+	ret = la_enable(connector_gripper);
+	if (ret < 0) {
+		LOG_WRN("connector gripper enable failed: %d", ret);
+	}
+}
+
+static void connector_gripper_set(uint16_t position)
+{
+	int ret = la_set_position(connector_gripper, position);
+
+	if (ret < 0) {
+		LOG_ERR("connector gripper set %u failed: %d", position, ret);
+	}
+}
+
+static void connector_gripper_open(void)
+{
+	connector_gripper_set(CONNECTOR_GRIPPER_OPEN_POS);
+}
+
+static void connector_gripper_grasp(void)
+{
+	connector_gripper_set(CONNECTOR_GRIPPER_GRASP_POS);
+}
+
+/* prepare 长度(m)→wye 角度(deg)：zero_length→0°, center_length→connector_wye_center_angle */
+static float prepare_length_to_angle(float length_m)
+{
+	return connector_wye_center_angle /
+	       (connector_wye_center_length - connector_wye_zero_length) *
+	       (length_m - connector_wye_zero_length);
+}
+
+static void spear_prepare_to_length(float length_m)
 {
 	motor_status_t status;
 
-	/* 张开夹爪 / 解锁机构(气动设备待接入) */
+	connector_gripper_open();
+
 	if (motor_get(connector_roll_motor, &status) == 0) {
 		move_traj(connector_roll_motor, status.angle, connector_roll_prepare_angle, 500);
 	}
-	motor_set_angle(connector_wye_motor, connector_wye_center_angle);
+	if (motor_get(connector_wye_motor, &status) == 0) {
+		move_traj(connector_wye_motor, status.sum_angle, prepare_length_to_angle(length_m), 500);
+	}
 	k_msleep(1000);
 }
 
-/* 行为2：单一夹取动作。气动设备尚未接入，仅保留函数。 */
+/* 行为1：初始化操作，移动到待抓取位姿(wye 角度由 args[0]=length 换算) */
+void spear_prepare(void)
+{
+	spear_prepare_to_length(pending_spear_args[0]);
+}
+
+/* 行为2：单一夹取动作，电缸位置 1400。 */
 void spear_grasp(void)
 {
-	/* 夹爪闭合抓取矛头 -> 到位检测 -> 锁紧；随后稍微抬起机构以便取出矛头。
-	 * 对应气动设备尚未接入，此处仅保留函数。
-	 */
+	connector_gripper_grasp();
+	k_msleep(500);
 }
 
 void spear_dock_release(void); /* 前置声明：dock_extend 末尾调用 */
@@ -266,14 +327,14 @@ void spear_dock_extend(void)
 }
 
 /* 行为4：对接——朝对接方向旋转 wye；监控 wye 电流(力矩)，先到达对接阈值(≤ 阈值)、之后再
- * 回到 0 即判定对接到位，松开气动夹爪并停止。由 spear_dock_extend 末尾调用。
+ * 回到 0 即判定对接到位，张开电缸夹爪并停止。由 spear_dock_extend 末尾调用。
  */
 void spear_dock_release(void)
 {
 	motor_status_t status;
 	bool reached = false;
 
-	motor_set_angle(connector_wye_motor, 1.5 * connector_wye_center_angle);
+	motor_set_angle(connector_wye_motor, 1.5f * connector_wye_center_angle);
 	k_msleep(1000);
 
 	/* 监控 wye 电流：先到达对接阈值(≤ -0.5)，之后再回到 0，才触发松开 */
@@ -289,7 +350,7 @@ void spear_dock_release(void)
 		} else if (connector_wye_current >= -0.1f) {
 			motor_set_angle(connector_wye_motor, connector_wye_center_angle); // 回到中心位(演示用)
 			k_msleep(100);
-			/* 松开气动夹爪(气动设备待接入) */
+			connector_gripper_open();
 			break; /* 到达阈值后电流回到 0 → 触发松开 */
 		}
 		k_msleep(10);
@@ -377,7 +438,37 @@ void arm_store_to_body(void)
 /* KFS 暂持在机械臂上 */
 void arm_store_on_arm(void)
 {
-	arm_grasp();
+	/* 抓取完成后保持当前姿态和吸盘状态，作为暂存在机械臂上的状态。 */
+	arm_payload_on_arm = true;
+}
+
+/* 丢掉当前暂存在手臂上的 KFS。气动/吸盘未接入，此处仅保留释放动作占位。 */
+static void arm_drop_payload_on_arm(void)
+{
+	if (!arm_payload_on_arm) {
+		return;
+	}
+
+	/* 吸盘放操作 */
+	arm_payload_on_arm = false;
+	k_msleep(100);
+}
+
+static void arm_auto_store_after_grasp(void)
+{
+	arm_grasp_count++;
+
+	if (arm_grasp_count == 1U) {
+		arm_store_to_body();
+		arm_payload_on_arm = false;
+		return;
+	}
+
+	if (arm_grasp_count >= 3U) {
+		arm_drop_payload_on_arm();
+	}
+
+	arm_store_on_arm();
 }
 
 /* 从车体取回 */
@@ -464,6 +555,10 @@ static void spear_cmd_cb(int status)
 		return;
 	}
 
+	for (int i = 0; i < 4; i++) {
+		pending_spear_args[i] = spear_cmd_rx.reserved[i]; /* 快照通用参数 */
+	}
+
 	pending_spear_cmd = cmd;
 	k_sem_give(&spear_start_sem);
 }
@@ -496,9 +591,12 @@ void arm_thread(void *arg1, void *arg2, void *arg3)
 		switch (cmd) {
 		case ARM_CMD_GRASP:
 			arm_grasp();
-			break;
+			arm_send_done(cmd);
+			arm_auto_store_after_grasp();
+			continue;
 		case ARM_CMD_STORE_TO_BODY:
 			arm_store_to_body();
+			arm_payload_on_arm = false;
 			break;
 		case ARM_CMD_STORE_ON_ARM:
 			arm_store_on_arm();
@@ -544,36 +642,27 @@ void init(void)
 {
 	LOG_INF("ares_r2_tool connector start");
 
-	/* UART plotter：导出 wye 电流(力矩)供外部串口 plotter 观察/标定 */
-	ares_uart_init_dev(&uart_interface, uart_dev);
-	if (ares_bind_interface(&uart_interface, &plotter_protocol) != 0) {
-		LOG_ERR("failed to initialize plotter UART interface");
-	}
-	plotter_add_variable(&plotter_protocol, &connector_wye_current, ARES_TYPE_FLOAT32,
-			     "connector_wye_current");
-
 	/* USB 指令通道(dual_protocol SYNC) */
 	if (ares_bind_interface(&usb_bulk_interface, &tool_protocol) != 0) {
 		LOG_ERR("failed to initialize ARES USB interface");
 	}
 
-	/* 指令帧与反馈帧共用 ID 0x0204；find_pack 返回首个匹配项，故带回调的指令帧 pack
-	 * 必须先注册(收帧路由到它)，反馈帧 pack 后注册(仅经 done_pack 指针 flush)。
-	 */
-	dual_sync_add(&tool_protocol, SYNC_ID_SPEAR, (uint8_t *)&spear_cmd_rx,
+	dual_sync_add(&tool_protocol, SYNC_ID_SPEAR_RX, (uint8_t *)&spear_cmd_rx,
 		      sizeof(spear_cmd_rx), spear_cmd_cb);
-	done_pack = dual_sync_add(&tool_protocol, SYNC_ID_SPEAR, (uint8_t *)&spear_done_tx,
+	done_pack = dual_sync_add(&tool_protocol, SYNC_ID_SPEAR_TX, (uint8_t *)&spear_done_tx,
 				  sizeof(spear_done_tx), NULL);
 
-	dual_sync_add(&tool_protocol, SYNC_ID_ARM, (uint8_t *)&arm_cmd_rx,
+	dual_sync_add(&tool_protocol, SYNC_ID_ARM_RX, (uint8_t *)&arm_cmd_rx,
 		      sizeof(arm_cmd_rx), arm_cmd_cb);
-	arm_done_pack = dual_sync_add(&tool_protocol, SYNC_ID_ARM, (uint8_t *)&arm_done_tx,
+	arm_done_pack = dual_sync_add(&tool_protocol, SYNC_ID_ARM_TX, (uint8_t *)&arm_done_tx,
 				      sizeof(arm_done_tx), NULL);
 
 	enable_connector();
+	enable_connector_gripper();
 	enable_arm();
 	connector_init();
 	arm_init();
+	spear_prepare_to_length(connector_wye_center_length);
 }
 
 int main(void)

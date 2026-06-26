@@ -16,4 +16,16 @@ config ARES_USB_THREAD_STACK_SIZE
     help
       Specifies the stack size for the thread that processes incoming USB data.
 
+config ARES_USB_VID
+	hex "USB vendor ID"
+	default 0x1209
+	help
+	  Vendor ID used by the ARES USB bulk device.
+
+config ARES_USB_PID
+	hex "USB product ID"
+	default 0x0001
+	help
+	  Product ID used by the ARES USB bulk device.
+
 endmenu # ARES Custom USB Application
