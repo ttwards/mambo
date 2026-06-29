@@ -27,6 +27,24 @@ Mambo is a Zephyr RTOS module for robot embedded-control development. It models 
 
 See `structure.png` for an overview and `example.dts` for an example robot description.
 
+## Version Policy
+
+Mambo uses West to manage Zephyr and external modules. `west.yml` pins Zephyr to the commit validated by the sample build matrix:
+
+```text
+6085aadeb337f27ee7411fa2ecbe8cf49164e360
+```
+
+Pinning an exact commit prevents builds from changing as the Zephyr `main` branch moves. To upgrade Zephyr, update `west.yml` on a dedicated branch, run `west update`, and validate at least the following build set:
+
+```shell
+west build -p always -b robomaster_board_c samples/motor/dji_m3508_demo
+west build -p always -b robomaster_board_a samples/motor/dji_m3508_demo
+west build -p always -b robomaster_board_c samples/motor/dm_demo
+west build -p always -b robomaster_board_a samples/motor/dm_demo
+west build -p always -b dm_mc02 samples/motor/dm_demo
+```
+
 ## Setup
 
 Install host dependencies on Ubuntu:
@@ -39,14 +57,16 @@ sudo apt install --no-install-recommends git cmake ninja-build gperf \
   xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 ```
 
-Install West:
+Install West and Zephyr Python dependencies in a virtual environment:
 
 ```shell
-python3 -m pip install --upgrade pip
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip wheel
 python3 -m pip install west
 ```
 
-If your Python distribution requires a virtual environment, create and activate one before installing West.
+If you already use a managed Python environment, an equivalent venv, pipx, or system package setup is also acceptable. Avoid mixing Zephyr build dependencies into a global Python environment.
 
 ## Workspace Initialization
 
@@ -56,10 +76,22 @@ cd my-workspace
 west update
 west zephyr-export
 python3 -m pip install -r zephyr/scripts/requirements.txt
-west sdk install
+west sdk install -t arm-zephyr-eabi
 ```
 
-After initialization, the workspace root contains `mambo/`, `zephyr/`, and the Zephyr dependency modules declared by `west.yml`.
+After initialization, the workspace root contains these project directories:
+
+- `mambo/`: the manifest repository.
+- `zephyr/`: the Zephyr source tree pinned by `west.yml`.
+- `modules/hal/cmsis/`
+- `modules/hal/cmsis_6/`
+- `modules/lib/cmsis-dsp/`
+- `modules/hal/st/`
+- `modules/hal/stm32/`
+- `modules/debug/segger/`
+- `bootloader/mcuboot/`
+
+`west sdk install -t arm-zephyr-eabi` installs only the GNU toolchain required by the current ARM Cortex-M targets. Install additional Zephyr SDK toolchains only when building for other architectures.
 
 ## Build and Flash
 
