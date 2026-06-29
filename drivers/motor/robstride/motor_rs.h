@@ -91,8 +91,8 @@ struct rs_can_id {
 	uint32_t motor_id: 8;  // 目标ID
 	uint32_t master_id: 8; // 主机ID
 	uint32_t reserved: 8;  // 数据区
-	uint32_t msg_type: 5; // 通信类型
-	uint32_t res: 3; 
+	uint32_t msg_type: 5;  // 通信类型
+	uint32_t res: 3;
 };
 
 enum MOTOR_TYPE {
@@ -169,7 +169,7 @@ K_WORK_DEFINE(rs_tx_data_handle, rs_tx_data_handler);
 
 K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
 
-#define RS_MOTOR_TYPE(inst) DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02)
+#define RS_MOTOR_TYPE(inst)          DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), motor_type, RS02)
 #define RS_MOTOR_PARAM_(type, field) type##_##field
 #define RS_MOTOR_PARAM(type, field)  RS_MOTOR_PARAM_(type, field)
 

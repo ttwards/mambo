@@ -51,13 +51,11 @@ int main(void)
 {
 	LOG_INF("=== 达妙DM电机控制示例 - 简化版 ===");
 
-
 	// 检查电机设备是否就绪
 	if (!device_is_ready(dm_motor)) {
 		LOG_ERR("达妙DM电机设备未就绪");
 		return -ENODEV;
 	}
-
 
 	// motor_control(dm_motor, SET_ZERO);
 	motor_control(dm_motor, ENABLE_MOTOR);
@@ -66,12 +64,8 @@ int main(void)
 
 	k_msleep(1000);
 
-
-	motor_set_mit(dm_motor, 10.0f,720.0f,0.0);
+	motor_set_mit(dm_motor, 10.0f, 720.0f, 0.0);
 	k_msleep(500);
-
-
-
 
 	while (1) {
 		// motor_set_mit(dm_motor, 10.0f,90.0f,0.0);

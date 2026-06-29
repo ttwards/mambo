@@ -75,8 +75,7 @@ int main(void)
 	motor_set_mode(motor, MIT);
 	LOG_INF("电机已启用");
 	k_msleep(1000);
-	
-	
+
 	/* Start Feedback thread*/
 	while (1) {
 

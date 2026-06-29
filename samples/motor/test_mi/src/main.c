@@ -49,7 +49,7 @@ int main(void)
 				       feedback_stack_area, // 修改为 can_send_stack_area
 				       K_THREAD_STACK_SIZEOF(feedback_stack_area), console_feedback,
 				       (void *)motor1, NULL, NULL, 0, 0, K_MSEC(300));
-					   
+
 	motor_control(motor1, SET_ZERO);
 	while (1) {
 

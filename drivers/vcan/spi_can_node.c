@@ -328,8 +328,8 @@ static int spi_can_node_get_state(const struct device *dev, enum can_state *stat
 			*err_cnt = (struct can_bus_err_cnt){0};
 		}
 
-		spi_can_node_update_state(dev, CAN_STATE_STOPPED,
-					  &(struct can_bus_err_cnt){0}, false);
+		spi_can_node_update_state(dev, CAN_STATE_STOPPED, &(struct can_bus_err_cnt){0},
+					  false);
 		return 0;
 	}
 
@@ -391,20 +391,22 @@ static DEVICE_API(can, spi_can_node_driver_api) = {
 	.set_state_change_callback = spi_can_node_set_state_change_callback,
 	.get_core_clock = spi_can_node_get_core_clock,
 	.get_max_filters = spi_can_node_get_max_filters,
-	.timing_min = {
-		.sjw = 1,
-		.prop_seg = 0,
-		.phase_seg1 = 2,
-		.phase_seg2 = 2,
-		.prescaler = 1,
-	},
-	.timing_max = {
-		.sjw = 128,
-		.prop_seg = 0,
-		.phase_seg1 = 256,
-		.phase_seg2 = 128,
-		.prescaler = 32,
-	},
+	.timing_min =
+		{
+			.sjw = 1,
+			.prop_seg = 0,
+			.phase_seg1 = 2,
+			.phase_seg2 = 2,
+			.prescaler = 1,
+		},
+	.timing_max =
+		{
+			.sjw = 128,
+			.prop_seg = 0,
+			.phase_seg1 = 256,
+			.phase_seg2 = 128,
+			.prescaler = 32,
+		},
 };
 
 static int spi_can_node_init(const struct device *dev)
@@ -428,17 +430,17 @@ static int spi_can_node_init(const struct device *dev)
 	return 0;
 }
 
-#define SPI_CAN_NODE_INIT(inst)                                                                   \
-	BUILD_ASSERT(DT_INST_PROP(inst, can_channel) < SPI_CAN_MFD_MAX_CHANNELS,                 \
-		     "custom,spi-can-node channel must be 0 or 1");                           \
-	static const struct spi_can_node_config spi_can_node_config_##inst = {                   \
-		.common = CAN_DT_DRIVER_CONFIG_INST_GET(inst, 0, VCAN_MAX_BITRATE),            \
-		.parent = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                  \
-		.channel = DT_INST_PROP(inst, can_channel),                                     \
+#define SPI_CAN_NODE_INIT(inst)                                                                    \
+	BUILD_ASSERT(DT_INST_PROP(inst, can_channel) < SPI_CAN_MFD_MAX_CHANNELS,                   \
+		     "custom,spi-can-node channel must be 0 or 1");                                \
+	static const struct spi_can_node_config spi_can_node_config_##inst = {                     \
+		.common = CAN_DT_DRIVER_CONFIG_INST_GET(inst, 0, VCAN_MAX_BITRATE),                \
+		.parent = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                     \
+		.channel = DT_INST_PROP(inst, can_channel),                                        \
 	};                                                                                         \
-	static struct spi_can_node_data spi_can_node_data_##inst;                                 \
-	CAN_DEVICE_DT_INST_DEFINE(inst, spi_can_node_init, NULL, &spi_can_node_data_##inst,       \
-				  &spi_can_node_config_##inst, POST_KERNEL,                     \
+	static struct spi_can_node_data spi_can_node_data_##inst;                                  \
+	CAN_DEVICE_DT_INST_DEFINE(inst, spi_can_node_init, NULL, &spi_can_node_data_##inst,        \
+				  &spi_can_node_config_##inst, POST_KERNEL,                        \
 				  CONFIG_VCAN_NODE_INIT_PRIORITY, &spi_can_node_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(SPI_CAN_NODE_INIT)
