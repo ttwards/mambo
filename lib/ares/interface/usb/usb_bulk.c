@@ -1,7 +1,5 @@
 /*
  * Copyright (c) 2022, 2025 Nordic Semiconductor ASA
- * Modified by AI for user requirements.
- *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -137,6 +135,7 @@ static int ares_if_submit_bulk_out(struct usbd_class_data *const c_data)
 	}
 
 	if (k_msgq_num_free_get(&incoming_data_msgq) == 0) {
+		atomic_clear_bit(&data->state, ARES_IF_FUNCTION_OUT_ENGAGED);
 		return 0;
 	}
 
