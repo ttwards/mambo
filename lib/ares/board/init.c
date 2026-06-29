@@ -16,25 +16,20 @@
 
 LOG_MODULE_REGISTER(board_init, CONFIG_BOARD_LOG_LEVEL);
 
-#ifdef CONFIG_BOARD_DM_MC02
-#include <zephyr/drivers/led_strip.h>
-#else
 struct led_rgb {
 	uint8_t r;
 	uint8_t g;
 	uint8_t b;
 };
-#endif
 
 #ifdef CONFIG_BOARD_DM_MC02
 #define XT30_1_NODE DT_NODELABEL(power1)
 #define XT30_2_NODE DT_NODELABEL(power2)
-#define STRIP_NODE  DT_ALIAS(led_strip)
 
+#if DT_NODE_EXISTS(XT30_1_NODE) && DT_NODE_HAS_PROP(XT30_1_NODE, gpios) &&                         \
+	DT_NODE_EXISTS(XT30_2_NODE) && DT_NODE_HAS_PROP(XT30_2_NODE, gpios)
 static const struct gpio_dt_spec pwr1 = GPIO_DT_SPEC_GET(XT30_1_NODE, gpios);
 static const struct gpio_dt_spec pwr2 = GPIO_DT_SPEC_GET(XT30_2_NODE, gpios);
-
-const struct device *strip = DEVICE_DT_GET(STRIP_NODE);
 
 void pwr_init(void)
 {
@@ -43,7 +38,11 @@ void pwr_init(void)
 }
 
 #define PWR_INIT pwr_init();
-#define LED_INIT led_init();
+#else
+#define PWR_INIT
+#endif
+
+#define LED_INIT
 
 #define set_rgb_led_brightness(color)
 
