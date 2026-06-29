@@ -35,12 +35,6 @@ git commit -m "feat: 你的功能描述"  # pre-commit 自动运行检查
 ## 常用命令
 
 ```bash
-# Makefile 快捷命令
-make help              # 查看所有命令
-make check             # 运行所有检查
-make format            # 自动格式化代码
-make build-all         # 编译所有示例
-
 # Pre-commit
 pre-commit run --all-files    # 检查所有文件
 pre-commit autoupdate          # 更新 hooks
@@ -54,7 +48,7 @@ west build -b dm_mc02 samples/motor/dm_demo
 
 - 每个文件必须包含 SPDX 许可证头：`// SPDX-License-Identifier: Apache-2.0`
 - 使用 `.clang-format` 格式化 C/C++ 代码
-- 提交前运行 `make check`
+- 提交前运行 `pre-commit run --all-files`
 
 ## CI 流程
 
