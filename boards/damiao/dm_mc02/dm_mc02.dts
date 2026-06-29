@@ -201,7 +201,7 @@
     pinctrl-names = "default";
 };
 
-&fdcan1 {
+can1: &fdcan1 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
              <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
@@ -209,7 +209,7 @@
     pinctrl-names = "default";
 };
 
-&fdcan2 {
+can2: &fdcan2 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
              <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
@@ -217,7 +217,7 @@
     pinctrl-names = "default";
 };
 
-&fdcan3 {
+can3: &fdcan3 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
              <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
