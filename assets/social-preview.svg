@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Mambo social preview</title>
+  <desc id="desc">Social preview artwork for the Mambo Zephyr robotics framework.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F7FAFC"/>
+      <stop offset="1" stop-color="#E8F0F6"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="126" y1="96" x2="520" y2="492" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17202A"/>
+      <stop offset="1" stop-color="#0A1118"/>
+    </linearGradient>
+    <linearGradient id="trace" x1="196" y1="170" x2="446" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58D5FF"/>
+      <stop offset="1" stop-color="#1B8CFF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="190" y1="170" x2="454" y2="426" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFB94A"/>
+      <stop offset="1" stop-color="#FF6B3D"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#0A1118" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <path d="M0 520C180 456 308 482 458 526C650 582 828 586 1280 426V640H0Z" fill="#DCE9F1"/>
+  <path d="M742 116H1160M742 174H1088M742 232H1160" fill="none" stroke="#D7E2EA" stroke-width="8" stroke-linecap="round"/>
+  <path d="M742 422H1116M742 480H1028" fill="none" stroke="#D7E2EA" stroke-width="8" stroke-linecap="round"/>
+
+  <g filter="url(#shadow)">
+    <rect x="126" y="96" width="420" height="420" rx="72" fill="url(#panel)"/>
+    <path d="M218 406H454" fill="none" stroke="#22384A" stroke-width="30" stroke-linecap="round"/>
+    <path d="M220 396V202L336 330L452 202V396" fill="none" stroke="#EAF4FF" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M220 396V202L336 330L452 202V396" fill="none" stroke="url(#trace)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M220 202H170M452 202H502M336 330V456" fill="none" stroke="#2E4B62" stroke-width="17" stroke-linecap="round"/>
+    <path d="M220 396H170M452 396H502" fill="none" stroke="#2E4B62" stroke-width="17" stroke-linecap="round"/>
+    <circle cx="220" cy="202" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+    <circle cx="336" cy="330" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+    <circle cx="452" cy="202" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+    <circle cx="220" cy="396" r="20" fill="#58D5FF"/>
+    <circle cx="452" cy="396" r="20" fill="#58D5FF"/>
+    <circle cx="336" cy="456" r="17" fill="#FF8A3D"/>
+  </g>
+
+  <text x="636" y="300" fill="#142033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="116" font-weight="800" letter-spacing="0">Mambo</text>
+  <text x="642" y="358" fill="#506172" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="34" font-weight="600" letter-spacing="0">Zephyr robotics framework</text>
+  <path d="M646 392H1006" fill="none" stroke="#D1DEE7" stroke-width="4" stroke-linecap="round"/>
+  <path d="M646 392H800" fill="none" stroke="url(#trace)" stroke-width="4" stroke-linecap="round"/>
+  <text x="646" y="458" fill="#506172" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="25" font-weight="500" letter-spacing="0">Devicetree-first control modules for robot firmware.</text>
+</svg>

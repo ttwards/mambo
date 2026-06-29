@@ -1,5 +1,106 @@
-# Motor Drivers for Zephyr RTOS
-### I am totally against Linus's dictatorial behaviour of wiping out the Linux Maintainer on 10.23 on the basis of nationality.
-## This a project supported by various members in SUSTech ARES the robot club.
-### We are attempting to describe the robot in a device tree model.
-### This helps cut down costs processing the relationships between chassis, motor or so.
+# Mambo
+
+<p align="center">
+  <img src="assets/logo.svg" width="620" alt="Mambo">
+</p>
+
+<p align="center">
+  <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml">CI</a> ·
+  <a href="https://github.com/ttwards/mambo/actions/workflows/release.yml">Release</a> ·
+  <a href="https://github.com/ttwards/mambo">License</a> ·
+  <a href="https://github.com/ttwards/mambo/stargazers">Stars</a> ·
+  <a href="https://github.com/ttwards/mambo/forks">Forks</a>
+</p>
+
+Mambo is a Zephyr RTOS module for robot embedded-control development. It models robot hardware relationships through devicetree and provides reusable drivers, protocol libraries, board support, and sample applications.
+
+## Repository Layout
+
+- `boards/`: custom board definitions.
+- `dts/bindings/`: devicetree bindings used by drivers and libraries.
+- `drivers/`: motor, chassis, sensor, VCAN, SBUS, PID, and wheel drivers.
+- `lib/ares/`: ARES communication, protocol, IMU, and board helper libraries.
+- `samples/`: buildable example applications.
+- `template/`: starter template for new applications.
+- `Documents/`: design notes and topic-specific documentation.
+
+See `structure.png` for an overview and `example.dts` for an example robot description.
+
+## Setup
+
+Install host dependencies on Ubuntu:
+
+```shell
+sudo apt update
+sudo apt install --no-install-recommends git cmake ninja-build gperf \
+  ccache dfu-util device-tree-compiler wget \
+  python3-dev python3-pip python3-setuptools python3-tk python3-wheel \
+  xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
+```
+
+Install West:
+
+```shell
+python3 -m pip install --upgrade pip
+python3 -m pip install west
+```
+
+If your Python distribution requires a virtual environment, create and activate one before installing West.
+
+## Workspace Initialization
+
+```shell
+west init -m https://github.com/ttwards/mambo --mr master my-workspace
+cd my-workspace
+west update
+west zephyr-export
+python3 -m pip install -r zephyr/scripts/requirements.txt
+west sdk install
+```
+
+After initialization, the workspace root contains `mambo/`, `zephyr/`, and the Zephyr dependency modules declared by `west.yml`.
+
+## Build and Flash
+
+Build the DJI M3508 sample for Robomaster Board C:
+
+```shell
+cd mambo
+west build -b robomaster_board_c samples/motor/dji_m3508_demo
+```
+
+Flash the firmware:
+
+```shell
+west flash
+```
+
+Select a runner explicitly when needed:
+
+```shell
+west flash --runner stlink
+west flash --runner jlink
+```
+
+Additional examples:
+
+```shell
+west build -b dm_mc02 samples/motor/dm_demo
+west build -b robomaster_board_c samples/vcan/vcan_host_demo
+```
+
+## Development
+
+The repository uses pre-commit and GitHub Actions CI. Install hooks before submitting changes:
+
+```shell
+./setup-precommit.sh
+```
+
+Run checks manually:
+
+```shell
+pre-commit run --all-files
+```
+
+VS Code example settings are available in `VSC_sample_configs/`. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

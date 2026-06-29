@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Mambo icon</title>
+  <desc id="desc">A devicetree-inspired M mark for the Mambo Zephyr robotics framework.</desc>
+  <defs>
+    <linearGradient id="icon-bg" x1="48" y1="52" x2="464" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17202A"/>
+      <stop offset="1" stop-color="#0A1118"/>
+    </linearGradient>
+    <linearGradient id="trace" x1="120" y1="124" x2="392" y2="388" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#58D5FF"/>
+      <stop offset="1" stop-color="#1B8CFF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="106" y1="120" x2="402" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFB94A"/>
+      <stop offset="1" stop-color="#FF6B3D"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="40" y="40" width="432" height="432" rx="76" fill="url(#icon-bg)"/>
+  <path d="M136 364H376" fill="none" stroke="#22384A" stroke-width="30" stroke-linecap="round"/>
+  <path d="M138 354V154L256 286L374 154V354" fill="none" stroke="#EAF4FF" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M138 354V154L256 286L374 154V354" fill="none" stroke="url(#trace)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M138 154H88M374 154H424M256 286V414" fill="none" stroke="#2E4B62" stroke-width="17" stroke-linecap="round"/>
+  <path d="M138 354H88M374 354H424" fill="none" stroke="#2E4B62" stroke-width="17" stroke-linecap="round"/>
+  <circle cx="138" cy="154" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+  <circle cx="256" cy="286" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+  <circle cx="374" cy="154" r="24" fill="#0A1118" stroke="url(#accent)" stroke-width="12"/>
+  <circle cx="138" cy="354" r="20" fill="#58D5FF"/>
+  <circle cx="374" cy="354" r="20" fill="#58D5FF"/>
+  <circle cx="256" cy="414" r="17" fill="#FF8A3D"/>
+</svg>
