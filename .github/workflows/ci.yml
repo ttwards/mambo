@@ -95,8 +95,12 @@ jobs:
           pip install -r zephyr/scripts/requirements.txt
 
       - name: 安装 Zephyr SDK
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          west sdk install
+          west sdk install --install-base ~/.local/share/zephyr-sdk \
+            -t arm-zephyr-eabi \
+            --personal-access-token "$GITHUB_TOKEN"
 
       - name: 编译示例程序 - ${{ matrix.sample }} for ${{ matrix.board }}
         run: |
