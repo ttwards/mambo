@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml"><img src="assets/nav-ci.svg" height="16" alt=""> CI</a> ·
-  <a href="https://github.com/ttwards/mambo/actions/workflows/release.yml"><img src="assets/nav-release.svg" height="16" alt=""> Release</a> ·
-  <a href="https://github.com/ttwards/mambo"><img src="assets/nav-license.svg" height="16" alt=""> License</a> ·
-  <a href="https://github.com/ttwards/mambo/stargazers"><img src="assets/nav-stars.svg" height="16" alt=""> Stars</a> ·
-  <a href="https://github.com/ttwards/mambo/forks"><img src="assets/nav-forks.svg" height="16" alt=""> Forks</a>
+  <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ttwards/mambo/ci.yml?branch=master&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
+  <a href="https://github.com/ttwards/mambo/releases"><img src="https://img.shields.io/github/v/release/ttwards/mambo?style=for-the-badge&label=Release&logo=github&logoColor=white" alt="Release"></a>
+  <a href="https://github.com/ttwards/mambo/blob/master/LICENSE"><img src="https://img.shields.io/github/license/ttwards/mambo?style=for-the-badge&label=License" alt="License"></a>
+  <a href="https://github.com/ttwards/mambo/stargazers"><img src="https://img.shields.io/github/stars/ttwards/mambo?style=for-the-badge&logo=github&label=Stars" alt="Stars"></a>
+  <a href="https://github.com/ttwards/mambo/forks"><img src="https://img.shields.io/github/forks/ttwards/mambo?style=for-the-badge&logo=github&label=Forks" alt="Forks"></a>
 </p>
 
 Mambo 是一个面向机器人下位机开发的 Zephyr RTOS 模块。项目通过设备树描述电机、底盘、传感器、通信接口等硬件关系，并提供对应的驱动、协议库和样例程序。

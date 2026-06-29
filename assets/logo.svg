@@ -1,16 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 360" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 360" role="img" aria-labelledby="title desc">
   <title id="title">Mambo logo</title>
-  <desc id="desc">A devicetree-inspired M mark with connected robot control nodes and the Mambo wordmark.</desc>
+  <desc id="desc">A centered devicetree-inspired M mark with connected robot-control nodes and the Mambo wordmark.</desc>
   <defs>
-    <linearGradient id="icon-bg" x1="28" y1="34" x2="292" y2="298" gradientUnits="userSpaceOnUse">
+    <linearGradient id="icon-bg" x1="44" y1="44" x2="320" y2="320" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#17202A"/>
       <stop offset="1" stop-color="#0A1118"/>
     </linearGradient>
-    <linearGradient id="trace" x1="52" y1="72" x2="244" y2="246" gradientUnits="userSpaceOnUse">
+    <linearGradient id="trace" x1="104" y1="118" x2="260" y2="244" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#58D5FF"/>
       <stop offset="1" stop-color="#1B8CFF"/>
     </linearGradient>
-    <linearGradient id="accent" x1="54" y1="94" x2="230" y2="236" gradientUnits="userSpaceOnUse">
+    <linearGradient id="accent" x1="104" y1="118" x2="260" y2="272" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFB94A"/>
       <stop offset="1" stop-color="#FF6B3D"/>
     </linearGradient>
@@ -18,26 +18,36 @@
       <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0A1118" flood-opacity="0.16"/>
     </filter>
   </defs>
+  <style>
+    .wordmark { fill: #142033; }
+    .tagline { fill: #506172; }
+    .rule { stroke: #D8E2EA; }
+
+    @media (prefers-color-scheme: dark) {
+      .wordmark { fill: #F4F8FC; }
+      .tagline { fill: #C7D3DE; }
+      .rule { stroke: #6F8191; }
+    }
+  </style>
 
   <g filter="url(#soft-shadow)">
-    <rect x="40" y="44" width="272" height="272" rx="40" fill="url(#icon-bg)"/>
-    <path d="M80 244H232" fill="none" stroke="#22384A" stroke-width="18" stroke-linecap="round"/>
-    <path d="M82 238V110L156 194L232 110V238" fill="none" stroke="#EAF4FF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M82 238V110L156 194L232 110V238" fill="none" stroke="url(#trace)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M82 110H52M232 110H262M156 194V260" fill="none" stroke="#2E4B62" stroke-width="10" stroke-linecap="round"/>
-    <path d="M82 238H52M232 238H262" fill="none" stroke="#2E4B62" stroke-width="10" stroke-linecap="round"/>
-    <circle cx="82" cy="110" r="14" fill="#0A1118" stroke="url(#accent)" stroke-width="7"/>
-    <circle cx="156" cy="194" r="14" fill="#0A1118" stroke="url(#accent)" stroke-width="7"/>
-    <circle cx="232" cy="110" r="14" fill="#0A1118" stroke="url(#accent)" stroke-width="7"/>
-    <circle cx="82" cy="238" r="12" fill="#58D5FF"/>
-    <circle cx="232" cy="238" r="12" fill="#58D5FF"/>
-    <circle cx="156" cy="260" r="10" fill="#FF8A3D"/>
+    <rect x="44" y="44" width="276" height="276" rx="44" fill="url(#icon-bg)"/>
+    <path d="M76 118H104M260 118H288M76 244H288" fill="none" stroke="#2E4B62" stroke-width="11" stroke-linecap="round"/>
+    <path d="M104 244V118L182 196L260 118V244" fill="none" stroke="#EAF4FF" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M104 244V118L182 196L260 118V244" fill="none" stroke="url(#trace)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M182 196V272" fill="none" stroke="#2E4B62" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="104" cy="118" r="15" fill="#0A1118" stroke="url(#accent)" stroke-width="8"/>
+    <circle cx="182" cy="196" r="15" fill="#0A1118" stroke="url(#accent)" stroke-width="8"/>
+    <circle cx="260" cy="118" r="15" fill="#0A1118" stroke="url(#accent)" stroke-width="8"/>
+    <circle cx="104" cy="244" r="13" fill="#58D5FF"/>
+    <circle cx="260" cy="244" r="13" fill="#58D5FF"/>
+    <circle cx="182" cy="272" r="11" fill="#FF8A3D"/>
   </g>
 
   <g>
-    <text x="370" y="174" fill="#142033" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="0">Mambo</text>
-    <text x="376" y="224" fill="#506172" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="0">Zephyr robotics framework</text>
-    <path d="M378 254H724" fill="none" stroke="#D8E2EA" stroke-width="3" stroke-linecap="round"/>
-    <path d="M378 254H514" fill="none" stroke="url(#trace)" stroke-width="3" stroke-linecap="round"/>
+    <text x="392" y="174" class="wordmark" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="0">Mambo</text>
+    <text x="398" y="224" class="tagline" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="0">Zephyr robotics framework</text>
+    <path d="M400 254H746" class="rule" fill="none" stroke-width="3" stroke-linecap="round"/>
+    <path d="M400 254H536" fill="none" stroke="url(#trace)" stroke-width="3" stroke-linecap="round"/>
   </g>
 </svg>
