@@ -84,6 +84,10 @@
     d3ppre = <2>;   /* APB4: 137.5 MHz */
 };
 
+&pwr {
+    power-supply = "ldo";
+};
+
 &backup_sram {
     status = "okay";
 };
