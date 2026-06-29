@@ -102,11 +102,17 @@ jobs:
         run: |
           west build -b ${{ matrix.board }} mambo/${{ matrix.sample }} --pristine
 
+      - name: 设置构建产物名称
+        id: artifact-name
+        run: |
+          sample_name="${{ matrix.sample }}"
+          echo "name=build-${{ matrix.board }}-${sample_name//\//-}" >> "$GITHUB_OUTPUT"
+
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: build-${{ matrix.board }}-${{ matrix.sample }}
+          name: ${{ steps.artifact-name.outputs.name }}
           path: |
             build/zephyr/zephyr.elf
             build/zephyr/zephyr.bin
