@@ -20,7 +20,7 @@ jobs:
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: 安装 pre-commit
         run: |
@@ -54,6 +54,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: mambo
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: 安装系统依赖
         run: |
