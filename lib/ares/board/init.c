@@ -77,6 +77,7 @@ void pwr_init(void)
 
 #define PWR_INIT pwr_init();
 #define LED_INIT
+#define set_rgb_led_brightness(color)
 
 #endif /* CONFIG_BOARD_ROBOMASTER_BOARD_A */
 
