@@ -21,12 +21,9 @@
   <style>
     .wordmark { fill: #142033; }
     .tagline { fill: #506172; }
-    .rule { stroke: #D8E2EA; }
-
     @media (prefers-color-scheme: dark) {
       .wordmark { fill: #F4F8FC; }
       .tagline { fill: #C7D3DE; }
-      .rule { stroke: #6F8191; }
     }
   </style>
 
@@ -47,7 +44,5 @@
   <g>
     <text x="392" y="174" class="wordmark" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="0">Mambo</text>
     <text x="398" y="224" class="tagline" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="0">Zephyr robotics framework</text>
-    <path d="M400 254H746" class="rule" fill="none" stroke-width="3" stroke-linecap="round"/>
-    <path d="M400 254H536" fill="none" stroke="url(#trace)" stroke-width="3" stroke-linecap="round"/>
   </g>
 </svg>

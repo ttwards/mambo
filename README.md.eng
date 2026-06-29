@@ -1,7 +1,5 @@
-# Mambo
-
 <p align="right">
-  <a href="README.md"><img src="assets/nav-language.svg" height="16" alt=""> 中文</a>
+  <a href="README.md">中文</a>
 </p>
 
 <p align="center">
@@ -10,8 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ttwards/mambo/ci.yml?branch=master&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://github.com/ttwards/mambo/releases"><img src="https://img.shields.io/github/v/release/ttwards/mambo?style=for-the-badge&label=Release&logo=github&logoColor=white" alt="Release"></a>
-  <a href="https://github.com/ttwards/mambo/blob/master/LICENSE"><img src="https://img.shields.io/github/license/ttwards/mambo?style=for-the-badge&label=License" alt="License"></a>
+  <a href="https://opensource.org/license/mit/"><img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="MIT License"></a>
   <a href="https://github.com/ttwards/mambo/stargazers"><img src="https://img.shields.io/github/stars/ttwards/mambo?style=for-the-badge&logo=github&label=Stars" alt="Stars"></a>
   <a href="https://github.com/ttwards/mambo/forks"><img src="https://img.shields.io/github/forks/ttwards/mambo?style=for-the-badge&logo=github&label=Forks" alt="Forks"></a>
 </p>
