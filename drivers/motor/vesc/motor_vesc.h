@@ -15,11 +15,11 @@
 
 #define DT_DRV_COMPAT vesc_motor
 
-#define VESC_PI             3.14159265f
-#define VESC_DEG_PER_RAD    (180.0f / VESC_PI)
-#define VESC_RAD_PER_DEG    (VESC_PI / 180.0f)
-#define VESC_RPM_PER_RADPS  (60.0f / (2.0f * VESC_PI))
-#define VESC_RADPS_PER_RPM  ((2.0f * VESC_PI) / 60.0f)
+#define VESC_PI            3.14159265f
+#define VESC_DEG_PER_RAD   (180.0f / VESC_PI)
+#define VESC_RAD_PER_DEG   (VESC_PI / 180.0f)
+#define VESC_RPM_PER_RADPS (60.0f / (2.0f * VESC_PI))
+#define VESC_RADPS_PER_RPM ((2.0f * VESC_PI) / 60.0f)
 
 // 控制指令
 #define CAN_PACKET_SET_DUTY          0 // 设置占空比

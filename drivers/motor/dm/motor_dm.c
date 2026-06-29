@@ -305,7 +305,7 @@ int dm_set(const struct device *dev, motor_status_t *status)
 	const struct dm_motor_config *cfg = dev->config;
 
 	if (status->mode == MIT) {
-		data->target_angle = status->angle/(RAD2DEG);
+		data->target_angle = status->angle / (RAD2DEG);
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
 		// data->params.k_p = 0;

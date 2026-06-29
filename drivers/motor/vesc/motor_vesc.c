@@ -124,9 +124,10 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 				// 	data->target_radps, cfg->v_max);
 				vel_tmp = cfg->v_max * VESC_RPM_PER_RADPS;
 			} else if (data->target_radps < -cfg->v_max) {
-				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds negative v_max "
+				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds negative v_max
+				// "
 				// 	"%f",
-					// data->target_radps, -cfg->v_max);
+				// data->target_radps, -cfg->v_max);
 				vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
 			} else {
 				vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);

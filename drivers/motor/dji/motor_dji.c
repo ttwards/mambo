@@ -135,6 +135,17 @@ void dji_torque_limit(const struct device *dev, float max_torque, float min_torq
 	data->common.torque_limit[1] = max_torque;
 }
 
+static float dji_limit_torque(const struct dji_motor_data *data, float torque)
+{
+	if (torque > data->common.torque_limit[1]) {
+		return data->common.torque_limit[1];
+	}
+	if (torque < data->common.torque_limit[0]) {
+		return data->common.torque_limit[0];
+	}
+	return torque;
+}
+
 int dji_set_speed(const struct device *dev, float speed_rpm)
 {
 	struct dji_motor_data *data = dev->data;
@@ -161,13 +172,7 @@ int dji_set_torque(const struct device *dev, float torque)
 {
 	struct dji_motor_data *data = dev->data;
 
-	if (torque > data->common.torque_limit[1]) {
-		torque = data->common.torque_limit[1];
-	} else if (torque < data->common.torque_limit[0]) {
-		torque = data->common.torque_limit[0];
-	}
-
-	data->target_torque = torque;
+	data->target_torque = dji_limit_torque(data, torque);
 
 	return 0;
 }
@@ -238,6 +243,7 @@ int dji_set(const struct device *dev, motor_status_t *status)
 	} else if (status->mode == MIT) {
 		dji_set_angle(dev, status->angle);
 		dji_set_speed(dev, status->rpm);
+		data->target_torque_ff = dji_limit_torque(data, status->torque);
 	} else {
 		goto limits_set;
 	}
@@ -355,6 +361,8 @@ int dji_init(const struct device *dev)
 		data->ctrl_struct->full_handle.handler = dji_tx_handler;
 
 		data->online = true;
+		data->pid_count = SIZE_OF_ARRAY(cfg->common.pid_datas);
+		data->current_mode_index = data->pid_count;
 		for (int i = 0;
 		     i < sizeof(cfg->common.pid_datas) / sizeof(cfg->common.pid_datas[0]); i++) {
 			if (cfg->common.pid_datas[i] == NULL) {
@@ -634,13 +642,11 @@ static void motor_calc(const struct device *dev)
 			data->target_torque = -data->target_torque;
 		}
 	} else {
-		float deltaT_us =
-			(float)k_cyc_to_us_near32(data->curr_time - data->prev_time);
+		float deltaT_us = (float)k_cyc_to_us_near32(data->curr_time - data->prev_time);
 		for (int i = data->current_mode_index; i < data->pid_count; i++) {
 			if (strcmp(config->common.capabilities[i], "angle") == 0) {
 				data->target_rpm = pid_calc_in(config->common.pid_datas[i],
-							       -data->pid_angle_input,
-							       deltaT_us);
+							       -data->pid_angle_input, deltaT_us);
 				if (data->target_rpm > data->common.speed_limit[1]) {
 					data->target_rpm = data->common.speed_limit[1];
 				} else if (data->target_rpm < data->common.speed_limit[0]) {
@@ -649,6 +655,7 @@ static void motor_calc(const struct device *dev)
 			} else if (strcmp(config->common.capabilities[i], "mit") == 0) {
 				float vel_error = data->target_rpm - data->common.rpm;
 				data->target_torque =
+					data->target_torque_ff +
 					pid_calc_mit(config->common.pid_datas[i],
 						     -data->pid_angle_input, vel_error, deltaT_us);
 			} else {
@@ -666,9 +673,9 @@ static void motor_calc(const struct device *dev)
 		data->target_current = data->target_torque / config->gear_ratio *
 				       convert[data->convert_num][TORQUE2CURRENT];
 	} else {
-		data->target_current = data->target_torque * 16384.0f /
-				       (config->dm_torque_ratio * config->dm_i_max *
-					config->gear_ratio);
+		data->target_current =
+			data->target_torque * 16384.0f /
+			(config->dm_torque_ratio * config->dm_i_max * config->gear_ratio);
 	}
 	k_spin_unlock(&data->data_input_lock, key);
 }

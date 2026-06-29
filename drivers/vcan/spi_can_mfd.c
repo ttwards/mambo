@@ -22,17 +22,17 @@ LOG_MODULE_REGISTER(spi_can_mfd, CONFIG_CAN_LOG_LEVEL);
 
 #define SPI_CAN_LOG_INTERVAL_MS 5000U
 
-#define SPI_CAN_SYNC_MAGIC 0x5643414eUL
-#define SPI_CAN_SYNC_VERSION 1U
-#define SPI_CAN_SYNC_FRAME_SIZE 192U
-#define SPI_CAN_SYNC_MAX_FRAMES 4U
-#define SPI_CAN_SYNC_POLL_US 500U
-#define SPI_CAN_KICK_COALESCE_US 50U
-#define SPI_CAN_SYNC_TX_QUEUE_DEPTH CONFIG_VCAN_TX_QUEUE_DEPTH
-#define SPI_CAN_REARM_DELAY_US 200U
-#define SPI_CAN_STATE_FLAG_STARTED BIT(0)
+#define SPI_CAN_SYNC_MAGIC            0x5643414eUL
+#define SPI_CAN_SYNC_VERSION          1U
+#define SPI_CAN_SYNC_FRAME_SIZE       192U
+#define SPI_CAN_SYNC_MAX_FRAMES       4U
+#define SPI_CAN_SYNC_POLL_US          500U
+#define SPI_CAN_KICK_COALESCE_US      50U
+#define SPI_CAN_SYNC_TX_QUEUE_DEPTH   CONFIG_VCAN_TX_QUEUE_DEPTH
+#define SPI_CAN_REARM_DELAY_US        200U
+#define SPI_CAN_STATE_FLAG_STARTED    BIT(0)
 #define SPI_CAN_STATE_FLAG_RX_PENDING BIT(1)
-#define SPI_CAN_SPI_OPERATION                                                                  \
+#define SPI_CAN_SPI_OPERATION                                                                      \
 	(SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_MODE_CPHA | SPI_OP_MODE_MASTER)
 
 struct spi_can_sync_can_entry {
@@ -189,7 +189,7 @@ static int spi_can_unpack_frame_entry(const struct spi_can_sync_can_entry *entry
 
 static bool spi_can_try_align_sync_frame(uint8_t *frame, size_t len)
 {
-	static const uint8_t magic_le[] = { 0x4e, 0x41, 0x43, 0x56 };
+	static const uint8_t magic_le[] = {0x4e, 0x41, 0x43, 0x56};
 
 	for (size_t offset = 1U; offset <= 3U; offset++) {
 		if ((offset + sizeof(magic_le)) > len) {
@@ -230,8 +230,7 @@ static void spi_can_log_bad_sync_frame(const uint8_t *frame)
 	static uint32_t last_magic;
 	uint32_t magic = sys_get_le32(frame);
 
-	if (magic == last_magic &&
-	    !spi_can_should_log_again(&last_ms, SPI_CAN_LOG_INTERVAL_MS)) {
+	if (magic == last_magic && !spi_can_should_log_again(&last_ms, SPI_CAN_LOG_INTERVAL_MS)) {
 		return;
 	}
 
@@ -239,8 +238,8 @@ static void spi_can_log_bad_sync_frame(const uint8_t *frame)
 	last_ms = k_uptime_get_32();
 
 	LOG_ERR_RATELIMIT_RATE(SPI_CAN_LOG_INTERVAL_MS,
-			       "bad sync rsp magic=0x%08x raw=%02x %02x %02x %02x", magic,
-			       frame[0], frame[1], frame[2], frame[3]);
+			       "bad sync rsp magic=0x%08x raw=%02x %02x %02x %02x", magic, frame[0],
+			       frame[1], frame[2], frame[3]);
 }
 
 static bool spi_can_channel_has_pending_locked(const struct spi_can_mfd_channel_data *channel)
@@ -302,8 +301,8 @@ static size_t spi_can_plan_tx_entries_locked(struct spi_can_mfd_data *data,
 			struct can_frame can_frame;
 			uint32_t queued_idx = plan->tx_count_per_channel[channel];
 
-			if (k_msgq_peek_at(&data->channel_data[channel].tx_queue, &can_frame, queued_idx) <
-			    0) {
+			if (k_msgq_peek_at(&data->channel_data[channel].tx_queue, &can_frame,
+					   queued_idx) < 0) {
 				continue;
 			}
 
@@ -411,16 +410,18 @@ static int spi_can_parse_slave_frame_locked(const struct spi_can_mfd_config *cfg
 		spi_can_update_state_locked(&data->channel_data[channel], &frame->states[channel]);
 
 		if (cfg->channels[channel] != NULL && device_is_ready(cfg->channels[channel])) {
-			spi_can_node_report_state(cfg->channels[channel],
-					       (enum can_state)frame->states[channel].state,
-					       &(struct can_bus_err_cnt){
-						       .tx_err_cnt = frame->states[channel].tx_err,
-						       .rx_err_cnt = frame->states[channel].rx_err,
-					       });
+			spi_can_node_report_state(
+				cfg->channels[channel],
+				(enum can_state)frame->states[channel].state,
+				&(struct can_bus_err_cnt){
+					.tx_err_cnt = frame->states[channel].tx_err,
+					.rx_err_cnt = frame->states[channel].rx_err,
+				});
 		}
 	}
 
-	for (size_t i = 0U; i < MIN((size_t)frame->rx_count, (size_t)SPI_CAN_SYNC_MAX_FRAMES); i++) {
+	for (size_t i = 0U; i < MIN((size_t)frame->rx_count, (size_t)SPI_CAN_SYNC_MAX_FRAMES);
+	     i++) {
 		struct can_frame can_frame;
 		uint8_t channel;
 		int ret;
@@ -436,8 +437,7 @@ static int spi_can_parse_slave_frame_locked(const struct spi_can_mfd_config *cfg
 		if (channel >= SPI_CAN_MFD_MAX_CHANNELS || cfg->channels[channel] == NULL ||
 		    !device_is_ready(cfg->channels[channel])) {
 			LOG_WRN_RATELIMIT_RATE(SPI_CAN_LOG_INTERVAL_MS,
-					       "drop remote frame for invalid channel %u",
-					       channel);
+					       "drop remote frame for invalid channel %u", channel);
 			continue;
 		}
 
@@ -513,8 +513,7 @@ static void spi_can_poll_thread(void *p1, void *p2, void *p3)
 			if (ret <= 0) {
 				if (ret < 0) {
 					LOG_WRN_RATELIMIT_RATE(SPI_CAN_LOG_INTERVAL_MS,
-							       "service loop failed (%d)",
-							       ret);
+							       "service loop failed (%d)", ret);
 				}
 
 				break;
@@ -558,8 +557,8 @@ int spi_can_mfd_set_bitrate(const struct device *parent, uint8_t channel, uint32
 	return 0;
 }
 
-int spi_can_mfd_send(const struct device *parent, uint8_t channel,
-		     const struct can_frame *frame, k_timeout_t timeout)
+int spi_can_mfd_send(const struct device *parent, uint8_t channel, const struct can_frame *frame,
+		     k_timeout_t timeout)
 {
 	struct spi_can_mfd_data *data = parent->data;
 	int ret;
@@ -605,8 +604,8 @@ int spi_can_mfd_get_core_clock(const struct device *parent, uint32_t *rate)
 	return 0;
 }
 
-int spi_can_mfd_get_state(const struct device *parent, uint8_t channel,
-			  enum can_state *state, struct can_bus_err_cnt *err_cnt)
+int spi_can_mfd_get_state(const struct device *parent, uint8_t channel, enum can_state *state,
+			  struct can_bus_err_cnt *err_cnt)
 {
 	struct spi_can_mfd_data *data = parent->data;
 	int ret;
@@ -691,19 +690,19 @@ static int spi_can_mfd_init(const struct device *dev)
 
 #define VCAN_CHILD_DEV_ENTRY(child) [DT_PROP(child, can_channel)] = DEVICE_DT_GET(child)
 
-#define SPI_CAN_MFD_INIT(inst)                                                                    \
-	BUILD_ASSERT(DT_INST_CHILD_NUM_STATUS_OKAY(inst) <= SPI_CAN_MFD_MAX_CHANNELS,           \
-		     "custom,spi-can-mfd supports up to two CAN child nodes");                \
-	static const struct spi_can_mfd_config spi_can_mfd_config_##inst = {                     \
-		.bus = SPI_DT_SPEC_INST_GET(inst, SPI_CAN_SPI_OPERATION),                        \
-		.int_gpio = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                              \
-		.can_core_clock = DT_INST_PROP(inst, can_core_clock),                           \
-		.channels = { DT_INST_FOREACH_CHILD_STATUS_OKAY_SEP(inst,                        \
-								    VCAN_CHILD_DEV_ENTRY, (,)) }, \
+#define SPI_CAN_MFD_INIT(inst)                                                                     \
+	BUILD_ASSERT(DT_INST_CHILD_NUM_STATUS_OKAY(inst) <= SPI_CAN_MFD_MAX_CHANNELS,              \
+		     "custom,spi-can-mfd supports up to two CAN child nodes");                     \
+	static const struct spi_can_mfd_config spi_can_mfd_config_##inst = {                       \
+		.bus = SPI_DT_SPEC_INST_GET(inst, SPI_CAN_SPI_OPERATION),                          \
+		.int_gpio = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                                \
+		.can_core_clock = DT_INST_PROP(inst, can_core_clock),                              \
+		.channels = {DT_INST_FOREACH_CHILD_STATUS_OKAY_SEP(inst, VCAN_CHILD_DEV_ENTRY,     \
+								   (, ))},                         \
 	};                                                                                         \
-	static struct spi_can_mfd_data spi_can_mfd_data_##inst;                                  \
-	DEVICE_DT_INST_DEFINE(inst, spi_can_mfd_init, NULL, &spi_can_mfd_data_##inst,            \
-			      &spi_can_mfd_config_##inst, POST_KERNEL,                         \
-			      CONFIG_VCAN_INIT_PRIORITY, NULL);
+	static struct spi_can_mfd_data spi_can_mfd_data_##inst;                                    \
+	DEVICE_DT_INST_DEFINE(inst, spi_can_mfd_init, NULL, &spi_can_mfd_data_##inst,              \
+			      &spi_can_mfd_config_##inst, POST_KERNEL, CONFIG_VCAN_INIT_PRIORITY,  \
+			      NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(SPI_CAN_MFD_INIT)

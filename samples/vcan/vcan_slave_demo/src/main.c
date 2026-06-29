@@ -15,26 +15,26 @@ LOG_MODULE_REGISTER(vcan_slave_demo, LOG_LEVEL_INF);
 
 #define SLAVE_DEMO_LOG_INTERVAL_MS 5000U
 
-#define SPI_NODE DT_NODELABEL(spi2)
-#define CAN0_NODE DT_NODELABEL(can1)
-#define CAN1_NODE DT_NODELABEL(can2)
+#define SPI_NODE   DT_NODELABEL(spi2)
+#define CAN0_NODE  DT_NODELABEL(can1)
+#define CAN1_NODE  DT_NODELABEL(can2)
 #define GPIOB_NODE DT_NODELABEL(gpiob)
 
-#define SLAVE_INT_PIN 8U
+#define SLAVE_INT_PIN        8U
 #define SLAVE_INT_REFRESH_US 500U
 
-#define SPI_CAN_SYNC_MAGIC 0x5643414eUL
-#define SPI_CAN_SYNC_VERSION 1U
-#define SPI_CAN_SYNC_FRAME_SIZE 192U
-#define SPI_CAN_SYNC_MAX_FRAMES 4U
-#define SPI_CAN_SYNC_RX_QUEUE_DEPTH 32U
-#define SPI_CAN_SYNC_TX_QUEUE_DEPTH 128U
+#define SPI_CAN_SYNC_MAGIC            0x5643414eUL
+#define SPI_CAN_SYNC_VERSION          1U
+#define SPI_CAN_SYNC_FRAME_SIZE       192U
+#define SPI_CAN_SYNC_MAX_FRAMES       4U
+#define SPI_CAN_SYNC_RX_QUEUE_DEPTH   32U
+#define SPI_CAN_SYNC_TX_QUEUE_DEPTH   128U
 #define CAN_TX_TARGET_FPS_PER_CHANNEL 3000U
-#define CAN_TX_THREAD_STACK_SIZE 1024U
-#define CAN_TX_THREAD_PRIORITY 1
-#define CAN_TX_RETRY_DELAY_US 50U
-#define CAN_TX_PACE_SPIN_MARGIN_US 30U
-#define SPI_CAN_STATE_FLAG_STARTED BIT(0)
+#define CAN_TX_THREAD_STACK_SIZE      1024U
+#define CAN_TX_THREAD_PRIORITY        1
+#define CAN_TX_RETRY_DELAY_US         50U
+#define CAN_TX_PACE_SPIN_MARGIN_US    30U
+#define SPI_CAN_STATE_FLAG_STARTED    BIT(0)
 #define SPI_CAN_STATE_FLAG_RX_PENDING BIT(1)
 
 struct spi_can_sync_can_entry {
@@ -118,16 +118,18 @@ static struct spi_config spi_cfg = {
 };
 
 static struct slave_channel channels[2] = {
-	[0] = {
-		.id = 0U,
-		.can_dev = DEVICE_DT_GET(CAN0_NODE),
-		.state = CAN_STATE_STOPPED,
-	},
-	[1] = {
-		.id = 1U,
-		.can_dev = can1_dev,
-		.state = CAN_STATE_STOPPED,
-	},
+	[0] =
+		{
+			.id = 0U,
+			.can_dev = DEVICE_DT_GET(CAN0_NODE),
+			.state = CAN_STATE_STOPPED,
+		},
+	[1] =
+		{
+			.id = 1U,
+			.can_dev = can1_dev,
+			.state = CAN_STATE_STOPPED,
+		},
 };
 
 static uint8_t spi_tx_buf[SPI_CAN_SYNC_FRAME_SIZE] __aligned(4);
@@ -232,7 +234,7 @@ static int unpack_frame_entry(const struct spi_can_sync_can_entry *entry, struct
 
 static bool try_align_sync_frame(uint8_t *frame, size_t len)
 {
-	static const uint8_t magic_le[] = { 0x4e, 0x41, 0x43, 0x56 };
+	static const uint8_t magic_le[] = {0x4e, 0x41, 0x43, 0x56};
 
 	for (size_t offset = 1U; offset <= 3U; offset++) {
 		if ((offset + sizeof(magic_le)) > len) {
@@ -245,9 +247,9 @@ static bool try_align_sync_frame(uint8_t *frame, size_t len)
 
 		memmove(frame, &frame[offset], len - offset);
 		memset(&frame[len - offset], 0, offset);
-			LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
-					       "realigned host sync frame by %u byte(s)",
-					       (unsigned int)offset);
+		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
+				       "realigned host sync frame by %u byte(s)",
+				       (unsigned int)offset);
 		return true;
 	}
 
@@ -274,7 +276,8 @@ static void update_int_line(void)
 	static bool last_asserted;
 
 	for (uint8_t channel = 0U; channel < ARRAY_SIZE(channels); channel++) {
-		if (k_msgq_num_used_get(&channels[channel].rx_queue) > 0U || channels[channel].state_dirty) {
+		if (k_msgq_num_used_get(&channels[channel].rx_queue) > 0U ||
+		    channels[channel].state_dirty) {
 			asserted = true;
 			break;
 		}
@@ -311,8 +314,8 @@ static void can_state_cb(const struct device *dev, enum can_state state,
 	update_int_line();
 
 	LOG_INF_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
-			       "CAN state dev=%s state=%d tx_err=%u rx_err=%u", dev->name,
-			       state, err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
+			       "CAN state dev=%s state=%d tx_err=%u rx_err=%u", dev->name, state,
+			       err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
 }
 
 static void can_rx_cb(const struct device *dev, struct can_frame *frame, void *user_data)
@@ -328,8 +331,8 @@ static void can_rx_cb(const struct device *dev, struct can_frame *frame, void *u
 	}
 
 	update_int_line();
-	LOG_DBG("CAN RX dev=%s id=0x%03x dlc=%u seq=%u queued=%u", dev->name, frame->id,
-		frame->dlc, frame_seq_get(frame), k_msgq_num_used_get(&channel->rx_queue));
+	LOG_DBG("CAN RX dev=%s id=0x%03x dlc=%u seq=%u queued=%u", dev->name, frame->id, frame->dlc,
+		frame_seq_get(frame), k_msgq_num_used_get(&channel->rx_queue));
 }
 
 static void can_tx_cb(const struct device *dev, int error, void *user_data)
@@ -400,8 +403,8 @@ static int channel_start_with_bitrate(struct slave_channel *channel, uint8_t cha
 
 	ret = can_start(channel->can_dev);
 	if (ret < 0 && ret != -EALREADY) {
-		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
-				       "channel=%u start failed ret=%d", channel_id, ret);
+		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS, "channel=%u start failed ret=%d",
+				       channel_id, ret);
 		return ret;
 	}
 
@@ -415,8 +418,8 @@ static int channel_start_with_bitrate(struct slave_channel *channel, uint8_t cha
 
 	LOG_INF("channel=%u ready dev=%s bitrate=%u sjw=%u prop=%u ph1=%u ph2=%u prescaler=%u",
 		channel_id, channel->can_dev->name, bitrate, channel->timing.sjw,
-		channel->timing.prop_seg, channel->timing.phase_seg1,
-		channel->timing.phase_seg2, channel->timing.prescaler);
+		channel->timing.prop_seg, channel->timing.phase_seg1, channel->timing.phase_seg2,
+		channel->timing.prescaler);
 
 	return 0;
 }
@@ -444,8 +447,8 @@ static int channel_ensure_started(struct slave_channel *channel, uint8_t channel
 	}
 
 	if (!channel->bitrate_valid) {
-		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
-				       "channel=%u has no bitrate yet", channel_id);
+		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS, "channel=%u has no bitrate yet",
+				       channel_id);
 		return -ENETDOWN;
 	}
 
@@ -494,9 +497,8 @@ static int channel_queue_can_tx(struct slave_channel *channel, const struct can_
 		return ret;
 	}
 
-	LOG_DBG("CAN TX queued channel=%u id=0x%03x dlc=%u seq=%u queued=%u", channel_id,
-		frame->id, frame->dlc, frame_seq_get(frame),
-		k_msgq_num_used_get(&channel->tx_queue));
+	LOG_DBG("CAN TX queued channel=%u id=0x%03x dlc=%u seq=%u queued=%u", channel_id, frame->id,
+		frame->dlc, frame_seq_get(frame), k_msgq_num_used_get(&channel->tx_queue));
 
 	return 0;
 }
@@ -640,11 +642,11 @@ static void process_host_frame(uint8_t *raw_frame)
 		return;
 	}
 
-	if (sys_get_le32(frame->magic) != SPI_CAN_SYNC_MAGIC || frame->version != SPI_CAN_SYNC_VERSION) {
-			LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
-					       "drop bad sync req raw=%02x %02x %02x %02x",
-					       frame->magic[0], frame->magic[1],
-					       frame->magic[2], frame->magic[3]);
+	if (sys_get_le32(frame->magic) != SPI_CAN_SYNC_MAGIC ||
+	    frame->version != SPI_CAN_SYNC_VERSION) {
+		LOG_WRN_RATELIMIT_RATE(SLAVE_DEMO_LOG_INTERVAL_MS,
+				       "drop bad sync req raw=%02x %02x %02x %02x", frame->magic[0],
+				       frame->magic[1], frame->magic[2], frame->magic[3]);
 		return;
 	}
 
@@ -657,7 +659,8 @@ static void process_host_frame(uint8_t *raw_frame)
 		}
 	}
 
-	for (size_t i = 0U; i < MIN((size_t)frame->tx_count, (size_t)SPI_CAN_SYNC_MAX_FRAMES); i++) {
+	for (size_t i = 0U; i < MIN((size_t)frame->tx_count, (size_t)SPI_CAN_SYNC_MAX_FRAMES);
+	     i++) {
 		struct can_frame can_frame;
 		uint8_t channel_id;
 		int ret;
@@ -712,12 +715,13 @@ static int spi_bridge_init(void)
 		}
 
 		ret = can_add_rx_filter(channels[channel].can_dev, can_rx_cb, &channels[channel],
-					&(struct can_filter){ .id = 0U, .mask = 0U });
+					&(struct can_filter){.id = 0U, .mask = 0U});
 		if (ret < 0) {
 			return ret;
 		}
 
-		can_set_state_change_callback(channels[channel].can_dev, can_state_cb, &channels[channel]);
+		can_set_state_change_callback(channels[channel].can_dev, can_state_cb,
+					      &channels[channel]);
 	}
 
 	k_thread_create(&int_thread, int_stack, K_KERNEL_STACK_SIZEOF(int_stack),
@@ -732,8 +736,8 @@ static int spi_bridge_init(void)
 	}
 
 	LOG_INF("slave init done spi=%s can0=%s can1=%s int_out=PB%u refresh=%uus tx_pace=%ufps/ch",
-		spi_dev->name, channels[0].can_dev->name, channels[1].can_dev->name,
-		SLAVE_INT_PIN, SLAVE_INT_REFRESH_US, CAN_TX_TARGET_FPS_PER_CHANNEL);
+		spi_dev->name, channels[0].can_dev->name, channels[1].can_dev->name, SLAVE_INT_PIN,
+		SLAVE_INT_REFRESH_US, CAN_TX_TARGET_FPS_PER_CHANNEL);
 
 	return 0;
 }

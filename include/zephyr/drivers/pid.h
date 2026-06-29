@@ -106,16 +106,14 @@ STATIC_VOID pid_calc(struct pid_data *data)
 			data->err_derivate =
 				pid_para->detri_lpf * data->err_derivate +
 				(1 - pid_para->detri_lpf) *
-					(kd * (*(data->detri_ref) - *(data->detri_curr)) /
-					 deltaT);
+					(kd * (*(data->detri_ref) - *(data->detri_curr)) / deltaT);
 		}
 	}
-	*(data->output) = kp * (err + data->err_integral + data->err_derivate) +
-			  pid_para->output_offset;
-	if (pid_para->output_limit != 0 &&
-	    fabsf(*(data->output)) > pid_para->output_limit) {
-		*(data->output) = *(data->output) > 0 ? pid_para->output_limit
-						      : -pid_para->output_limit;
+	*(data->output) =
+		kp * (err + data->err_integral + data->err_derivate) + pid_para->output_offset;
+	if (pid_para->output_limit != 0 && fabsf(*(data->output)) > pid_para->output_limit) {
+		*(data->output) =
+			*(data->output) > 0 ? pid_para->output_limit : -pid_para->output_limit;
 	}
 }
 
@@ -157,8 +155,7 @@ STATIC float pid_calc_in(struct pid_data *data, float error, float deltaT_us)
 					 deltaT_us);
 		}
 	}
-	out = kp * (error + data->err_integral + data->err_derivate) +
-	      pid_para->output_offset;
+	out = kp * (error + data->err_integral + data->err_derivate) + pid_para->output_offset;
 	if (pid_para->output_limit != 0 && fabsf(out) > pid_para->output_limit) {
 		out = out > 0 ? pid_para->output_limit : -pid_para->output_limit;
 	}
@@ -177,8 +174,7 @@ STATIC float pid_calc_in(struct pid_data *data, float error, float deltaT_us)
  * @param deltaT_us  时间步长，单位微秒
  * @return 控制输出
  */
-STATIC float pid_calc_mit(struct pid_data *data, float pos_error, float vel_error,
-			   float deltaT_us)
+STATIC float pid_calc_mit(struct pid_data *data, float pos_error, float vel_error, float deltaT_us)
 {
 	const struct device *dev = data->pid_dev;
 	if (dev == NULL) {

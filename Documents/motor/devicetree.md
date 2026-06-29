@@ -12,10 +12,11 @@
 - `gear_ratio`: 减速比（需要乘100）
 - `status` = "okay": 启用电机
 - `can_channel`: CAN总线节点
-- `controllers`: PID控制器节点，是从前到后的串联环，暂时不支持MIT模式
+- `controllers`: PID控制器节点，是从前到后的串联环
 - `capabilities`: 指定PID环对应的控制对象，可选
   - "angle": 角度控制
   - "speed": 速度控制
+  - "mit": MIT 位置/速度误差控制，可叠加 `motor_set_mit()` 传入的扭矩前馈
 
 ```dts
 / {

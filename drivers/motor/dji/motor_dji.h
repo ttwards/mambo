@@ -88,6 +88,7 @@ struct dji_motor_data {
 	float target_angle;
 	float target_rpm;
 	float target_torque;
+	float target_torque_ff;
 	float target_current;
 	bool calculated;
 	bool new_data;

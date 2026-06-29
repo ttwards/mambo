@@ -140,7 +140,8 @@ static bool time_reached(uint32_t now, uint32_t deadline)
 	return (int32_t)(now - deadline) >= 0;
 }
 
-static uint16_t frame_cost_us(const struct can_frame *frame, const struct motor_can_sched_meta *meta)
+static uint16_t frame_cost_us(const struct can_frame *frame,
+			      const struct motor_can_sched_meta *meta)
 {
 	uint16_t cost = frame_time_us(frame->flags);
 
@@ -234,14 +235,15 @@ static int queue_entry_locked(const struct device *can_dev, const struct can_fra
 	if (!ring_push(ring, &entry)) {
 		bus->stats.dropped_frames++;
 		if (meta->trace_lifecycle) {
-			LOG_WRN("%s queue full drop seq=%u tag=%s prio=%s id=0x%03x",
-				can_dev->name, entry.trace_id, meta->tag != NULL ? meta->tag : "frame",
+			LOG_WRN("%s queue full drop seq=%u tag=%s prio=%s id=0x%03x", can_dev->name,
+				entry.trace_id, meta->tag != NULL ? meta->tag : "frame",
 				prio_name(meta->priority), frame->id);
 		}
 		return -ENOSPC;
 	}
 
-	bus->stats.queue_peak[meta->priority] = MAX(bus->stats.queue_peak[meta->priority], ring->count);
+	bus->stats.queue_peak[meta->priority] =
+		MAX(bus->stats.queue_peak[meta->priority], ring->count);
 	if (meta->trace_lifecycle) {
 		LOG_INF("%s queue seq=%u tag=%s prio=%s id=0x%03x reply=0x%03x q=%u retry=%u",
 			can_dev->name, entry.trace_id, meta->tag != NULL ? meta->tag : "frame",
@@ -341,7 +343,8 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		if (entry->meta.trace_lifecycle) {
 			LOG_WRN("%s tx busy requeue seq=%u tag=%s id=0x%03x err=%d",
 				bus->can_dev->name, entry->trace_id,
-				entry->meta.tag != NULL ? entry->meta.tag : "frame", entry->frame.id, ret);
+				entry->meta.tag != NULL ? entry->meta.tag : "frame",
+				entry->frame.id, ret);
 		}
 		return ret;
 	}
@@ -366,7 +369,8 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		LOG_INF("%s tx seq=%u tag=%s id=0x%03x expect_reply=%u retry=%u reserve=%uus",
 			bus->can_dev->name, entry->trace_id,
 			entry->meta.tag != NULL ? entry->meta.tag : "frame", entry->frame.id,
-			entry->meta.expect_reply ? 1U : 0U, entry->retries, entry->meta.reply_reserve_us);
+			entry->meta.expect_reply ? 1U : 0U, entry->retries,
+			entry->meta.reply_reserve_us);
 	}
 
 	k_busy_wait(frame_time_us(entry->frame.flags));
@@ -399,11 +403,13 @@ static void check_timeouts_locked(void)
 
 			bus->stats.ack_timeouts++;
 			if (pending->entry.meta.trace_lifecycle) {
-				LOG_WRN("%s ack timeout seq=%u tag=%s tx=0x%03x expect=0x%03x retry=%u/%u",
+				LOG_WRN("%s ack timeout seq=%u tag=%s tx=0x%03x expect=0x%03x "
+					"retry=%u/%u",
 					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag : "frame",
-					pending->entry.frame.id, pending->reply_id, pending->entry.retries,
-					pending->entry.meta.max_retries);
+					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
+									: "frame",
+					pending->entry.frame.id, pending->reply_id,
+					pending->entry.retries, pending->entry.meta.max_retries);
 			}
 			if (pending->entry.retries < pending->entry.meta.max_retries) {
 				struct motor_can_sched_entry retry_entry = pending->entry;
@@ -415,7 +421,8 @@ static void check_timeouts_locked(void)
 			} else if (pending->entry.meta.trace_lifecycle) {
 				LOG_ERR("%s give up seq=%u tag=%s tx=0x%03x expect=0x%03x",
 					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag : "frame",
+					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
+									: "frame",
 					pending->entry.frame.id, pending->reply_id);
 			}
 
@@ -450,22 +457,26 @@ static void log_window_if_needed(struct motor_can_sched_bus *bus)
 		return;
 	}
 
-	elapsed = (bus->last_log_ms == 0U) ? MOTOR_CAN_SCHED_LOG_WINDOW_MS : (now - bus->last_log_ms);
+	elapsed =
+		(bus->last_log_ms == 0U) ? MOTOR_CAN_SCHED_LOG_WINDOW_MS : (now - bus->last_log_ms);
 	bus->last_log_ms = now;
 
 	if (elapsed == 0U) {
 		elapsed = MOTOR_CAN_SCHED_LOG_WINDOW_MS;
 	}
 
-	LOG_INF("%s util tx=%u rx=%u reserve=%u load=%u.%02u%% tx=%u rx=%u ack=%u retry=%u timeout=%u drop=%u",
+	LOG_INF("%s util tx=%u rx=%u reserve=%u load=%u.%02u%% tx=%u rx=%u ack=%u retry=%u "
+		"timeout=%u drop=%u",
 		bus->can_dev->name, bus->stats.window_tx_busy_us, bus->stats.window_rx_busy_us,
 		bus->stats.window_reserved_us,
-		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us + bus->stats.window_rx_busy_us) *
-				 100U) /
-				elapsed / 1000U),
-		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us + bus->stats.window_rx_busy_us) *
-				 10000U) /
-				elapsed / 1000U) %
+		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us +
+					   bus->stats.window_rx_busy_us) *
+				100U) /
+			       elapsed / 1000U),
+		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us +
+					   bus->stats.window_rx_busy_us) *
+				10000U) /
+			       elapsed / 1000U) %
 			100U,
 		bus->stats.tx_frames, bus->stats.rx_frames, bus->stats.ack_matches,
 		bus->stats.retry_frames, bus->stats.ack_timeouts, bus->stats.dropped_frames);
@@ -562,7 +573,8 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 		uint32_t peak = 0U;
 		uint32_t total = 0U;
 
-		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME; slot += period_ticks) {
+		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME;
+		     slot += period_ticks) {
 			uint32_t loaded = bus->phase_load[slot] + cost;
 
 			total += loaded;
@@ -684,9 +696,11 @@ static int motor_can_sched_add_periodic(struct motor_can_sched_periodic *job)
 			job->phase_tick = choose_phase_locked(bus, job);
 			job->next_release_tick = sched_tick + job->phase_tick;
 			job->enabled = true;
-			LOG_INF("%s periodic add tag=%s rate=%uHz phase=%u period=%u expect_reply=%u",
-				job->can_dev->name, job->meta.tag != NULL ? job->meta.tag : "periodic",
-				job->rate_hz, job->phase_tick, job->period_ticks,
+			LOG_INF("%s periodic add tag=%s rate=%uHz phase=%u period=%u "
+				"expect_reply=%u",
+				job->can_dev->name,
+				job->meta.tag != NULL ? job->meta.tag : "periodic", job->rate_hz,
+				job->phase_tick, job->period_ticks,
 				job->meta.expect_reply ? 1U : 0U);
 			k_spin_unlock(&sched_lock, key);
 			return 0;
@@ -759,15 +773,19 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 		if (!pending->used) {
 			continue;
 		}
-		if ((frame->id & pending->reply_mask) == (pending->reply_id & pending->reply_mask)) {
+		if ((frame->id & pending->reply_mask) ==
+		    (pending->reply_id & pending->reply_mask)) {
 			uint32_t rtt_ms = k_uptime_get_32() - pending->sent_at_ms;
 
 			bus->stats.ack_matches++;
 			if (pending->entry.meta.trace_lifecycle) {
-				LOG_INF("%s ack ok seq=%u tag=%s tx=0x%03x rx=0x%03x rtt=%ums retry=%u",
+				LOG_INF("%s ack ok seq=%u tag=%s tx=0x%03x rx=0x%03x rtt=%ums "
+					"retry=%u",
 					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag : "frame",
-					pending->entry.frame.id, frame->id, rtt_ms, pending->entry.retries);
+					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
+									: "frame",
+					pending->entry.frame.id, frame->id, rtt_ms,
+					pending->entry.retries);
 			}
 			memset(pending, 0, sizeof(*pending));
 			break;

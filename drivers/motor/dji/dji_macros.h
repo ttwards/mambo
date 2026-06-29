@@ -78,6 +78,7 @@
 		.angle_offset = 0,                                                                 \
 		.pid_angle_input = 0,                                                              \
 		.pid_count = 0,                                                                    \
+		.target_torque_ff = 0,                                                             \
 	};
 
 #define CONFIG_GET_FOLLOW(node) DT_PHANDLE(node, follow)

@@ -13,49 +13,47 @@ LOG_MODULE_REGISTER(vcan_host_demo, LOG_LEVEL_INF);
 
 #define HOST_DEMO_LOG_INTERVAL_MS 5000U
 
-#define HOST_CAN0_NODE DT_NODELABEL(can1)
-#define HOST_CAN1_NODE DT_NODELABEL(can2)
+#define HOST_CAN0_NODE   DT_NODELABEL(can1)
+#define HOST_CAN1_NODE   DT_NODELABEL(can2)
 #define REMOTE_CAN0_NODE DT_NODELABEL(can_v0)
 #define REMOTE_CAN1_NODE DT_NODELABEL(can_v1)
 
-#define VCAN_CHANNEL_COUNT 2U
-#define TEST_MAGIC 0xA5U
-#define CAN_BITRATE_PER_CHANNEL 1000000U
-#define CAN_STD_8B_FRAME_BITS 111U
+#define VCAN_CHANNEL_COUNT                2U
+#define TEST_MAGIC                        0xA5U
+#define CAN_BITRATE_PER_CHANNEL           1000000U
+#define CAN_STD_8B_FRAME_BITS             111U
 #define CAN_SHARED_DIRECTIONS_PER_CHANNEL 2U
-#define SPI_SYNC_MAX_FRAMES_PER_TRANSFER 4U
-#define SPI_SYNC_POLL_US 500U
-#define TARGET_FPS_OVERRIDE 3000U
-#define RAW_TARGET_FPS_PER_DIRECTION                                                        \
-	((((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) /                              \
-	   CAN_SHARED_DIRECTIONS_PER_CHANNEL) <                                            \
-	  (((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) /            \
-	   VCAN_CHANNEL_COUNT)) ?                                                          \
-		 ((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) /                        \
-		  CAN_SHARED_DIRECTIONS_PER_CHANNEL) :                                       \
-		 (((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) /       \
-		  VCAN_CHANNEL_COUNT))
-#define TARGET_FPS_PER_DIRECTION TARGET_FPS_OVERRIDE
-#define TEST_PERIOD_MS 2U
-#define TEST_GAP_MS 1U
-#define TEST_TIMEOUT_MS 100U
-#define SUMMARY_INTERVAL_MS 5000U
+#define SPI_SYNC_MAX_FRAMES_PER_TRANSFER  4U
+#define SPI_SYNC_POLL_US                  500U
+#define TARGET_FPS_OVERRIDE               3000U
+#define RAW_TARGET_FPS_PER_DIRECTION                                                               \
+	((((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) /                                     \
+	   CAN_SHARED_DIRECTIONS_PER_CHANNEL) <                                                    \
+	  (((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) /                    \
+	   VCAN_CHANNEL_COUNT))                                                                    \
+		 ? ((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) /                            \
+		    CAN_SHARED_DIRECTIONS_PER_CHANNEL)                                             \
+		 : (((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) /           \
+		    VCAN_CHANNEL_COUNT))
+#define TARGET_FPS_PER_DIRECTION           TARGET_FPS_OVERRIDE
+#define TEST_PERIOD_MS                     2U
+#define TEST_GAP_MS                        1U
+#define TEST_TIMEOUT_MS                    100U
+#define SUMMARY_INTERVAL_MS                5000U
 #define STRESS_FRAMES_PER_PERIOD_NUMERATOR (TARGET_FPS_PER_DIRECTION * TEST_PERIOD_MS)
-#define STRESS_BATCH_BASE (STRESS_FRAMES_PER_PERIOD_NUMERATOR / 1000U)
-#define STRESS_BATCH_PEAK DIV_ROUND_UP(STRESS_FRAMES_PER_PERIOD_NUMERATOR, 1000U)
-#define PENDING_DEPTH 512U
-#define TIMEOUT_LOG_BURST 8U
-#define HOUSEKEEPING_PERIOD_MS 10U
-#define WORKER_COUNT (VCAN_CHANNEL_COUNT * 2U)
-#define WORKER_STACK_SIZE 1536U
-#define WORKER_PRIORITY 4
+#define STRESS_BATCH_BASE                  (STRESS_FRAMES_PER_PERIOD_NUMERATOR / 1000U)
+#define STRESS_BATCH_PEAK                  DIV_ROUND_UP(STRESS_FRAMES_PER_PERIOD_NUMERATOR, 1000U)
+#define PENDING_DEPTH                      512U
+#define TIMEOUT_LOG_BURST                  8U
+#define HOUSEKEEPING_PERIOD_MS             10U
+#define WORKER_COUNT                       (VCAN_CHANNEL_COUNT * 2U)
+#define WORKER_STACK_SIZE                  1536U
+#define WORKER_PRIORITY                    4
 
-#define CAN_IDEAL_MAX_FPS_PER_DIRECTION                                                     \
-	((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) /                                \
-	 CAN_SHARED_DIRECTIONS_PER_CHANNEL)
-#define CODE_MAX_FPS_PER_DIRECTION                                                           \
-	(((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) /              \
-	 VCAN_CHANNEL_COUNT)
+#define CAN_IDEAL_MAX_FPS_PER_DIRECTION                                                            \
+	((CAN_BITRATE_PER_CHANNEL / CAN_STD_8B_FRAME_BITS) / CAN_SHARED_DIRECTIONS_PER_CHANNEL)
+#define CODE_MAX_FPS_PER_DIRECTION                                                                 \
+	(((1000000U / SPI_SYNC_POLL_US) * SPI_SYNC_MAX_FRAMES_PER_TRANSFER) / VCAN_CHANNEL_COUNT)
 
 BUILD_ASSERT(TEST_GAP_MS < TEST_PERIOD_MS, "TEST_GAP_MS must be smaller than TEST_PERIOD_MS");
 BUILD_ASSERT(TARGET_FPS_PER_DIRECTION > 0U, "target fps must be non-zero");
@@ -149,8 +147,8 @@ static struct demo_stats stats = {
 					.remote_to_host_id = 0x220,
 					.host_to_remote_tag = 0x10,
 					.remote_to_host_tag = 0x20,
-					.host_to_remote = { .name = "can1->vcan0" },
-					.remote_to_host = { .name = "vcan0->can1" },
+					.host_to_remote = {.name = "can1->vcan0"},
+					.remote_to_host = {.name = "vcan0->can1"},
 				},
 			[1] =
 				{
@@ -161,63 +159,71 @@ static struct demo_stats stats = {
 					.remote_to_host_id = 0x221,
 					.host_to_remote_tag = 0x11,
 					.remote_to_host_tag = 0x21,
-					.host_to_remote = { .name = "can2->vcan1" },
-					.remote_to_host = { .name = "vcan1->can2" },
+					.host_to_remote = {.name = "can2->vcan1"},
+					.remote_to_host = {.name = "vcan1->can2"},
 				},
 		},
 };
 
 static const struct endpoint_ctx host_ctx[VCAN_CHANNEL_COUNT] = {
-	[0] = {
-		.channel = 0U,
-		.name = "host_can1",
-	},
-	[1] = {
-		.channel = 1U,
-		.name = "host_can2",
-	},
+	[0] =
+		{
+			.channel = 0U,
+			.name = "host_can1",
+		},
+	[1] =
+		{
+			.channel = 1U,
+			.name = "host_can2",
+		},
 };
 
 static const struct endpoint_ctx remote_ctx[VCAN_CHANNEL_COUNT] = {
-	[0] = {
-		.channel = 0U,
-		.name = "vcan0",
-	},
-	[1] = {
-		.channel = 1U,
-		.name = "vcan1",
-	},
+	[0] =
+		{
+			.channel = 0U,
+			.name = "vcan0",
+		},
+	[1] =
+		{
+			.channel = 1U,
+			.name = "vcan1",
+		},
 };
 
 static struct sender_worker workers[WORKER_COUNT] = {
-	[0] = {
-		.channel = 0U,
-		.remote_to_host = false,
-		.name = "can1->vcan0",
-		.next_seq = 1U,
-		.start_delay_ms = 0,
-	},
-	[1] = {
-		.channel = 1U,
-		.remote_to_host = false,
-		.name = "can2->vcan1",
-		.next_seq = 1U,
-		.start_delay_ms = 0,
-	},
-	[2] = {
-		.channel = 0U,
-		.remote_to_host = true,
-		.name = "vcan0->can1",
-		.next_seq = 1U,
-		.start_delay_ms = TEST_GAP_MS,
-	},
-	[3] = {
-		.channel = 1U,
-		.remote_to_host = true,
-		.name = "vcan1->can2",
-		.next_seq = 1U,
-		.start_delay_ms = TEST_GAP_MS,
-	},
+	[0] =
+		{
+			.channel = 0U,
+			.remote_to_host = false,
+			.name = "can1->vcan0",
+			.next_seq = 1U,
+			.start_delay_ms = 0,
+		},
+	[1] =
+		{
+			.channel = 1U,
+			.remote_to_host = false,
+			.name = "can2->vcan1",
+			.next_seq = 1U,
+			.start_delay_ms = 0,
+		},
+	[2] =
+		{
+			.channel = 0U,
+			.remote_to_host = true,
+			.name = "vcan0->can1",
+			.next_seq = 1U,
+			.start_delay_ms = TEST_GAP_MS,
+		},
+	[3] =
+		{
+			.channel = 1U,
+			.remote_to_host = true,
+			.name = "vcan1->can2",
+			.next_seq = 1U,
+			.start_delay_ms = TEST_GAP_MS,
+		},
 };
 
 K_THREAD_STACK_ARRAY_DEFINE(worker_stacks, WORKER_COUNT, WORKER_STACK_SIZE);
@@ -395,8 +401,8 @@ static void tx_callback(const struct device *dev, int error, void *user_data)
 
 	if (error < 0) {
 		LOG_WRN_RATELIMIT_RATE(HOST_DEMO_LOG_INTERVAL_MS,
-				       "%s TX callback dev=%s err=%d(%s)", name, dev->name,
-				       error, can_err_name(error));
+				       "%s TX callback dev=%s err=%d(%s)", name, dev->name, error,
+				       can_err_name(error));
 	}
 }
 
@@ -405,7 +411,8 @@ static void state_callback(const struct device *dev, enum can_state state,
 {
 	const struct endpoint_ctx *ctx = user_data;
 
-	if (state == CAN_STATE_ERROR_ACTIVE && err_cnt.tx_err_cnt == 0U && err_cnt.rx_err_cnt == 0U) {
+	if (state == CAN_STATE_ERROR_ACTIVE && err_cnt.tx_err_cnt == 0U &&
+	    err_cnt.rx_err_cnt == 0U) {
 		return;
 	}
 
@@ -425,7 +432,8 @@ static void check_timeout_case_locked(struct pending_case *pending, uint32_t *ti
 	report->seq_count = 0U;
 	report->total_count = 0U;
 
-	expired_count = pending_collect_timeouts(pending, now, report->seq, ARRAY_SIZE(report->seq));
+	expired_count =
+		pending_collect_timeouts(pending, now, report->seq, ARRAY_SIZE(report->seq));
 	if (expired_count == 0U) {
 		return;
 	}
@@ -459,11 +467,12 @@ static void check_timeouts(void)
 			continue;
 		}
 
-		LOG_ERR_RATELIMIT_RATE(HOST_DEMO_LOG_INTERVAL_MS,
-				       "%s timeout count=%u first_seq=%u sample_count=%u timeout=%u ms",
-				       reports[i].name, (unsigned int)reports[i].total_count,
-				       reports[i].seq_count > 0U ? reports[i].seq[0] : 0U,
-				       (unsigned int)reports[i].seq_count, TEST_TIMEOUT_MS);
+		LOG_ERR_RATELIMIT_RATE(
+			HOST_DEMO_LOG_INTERVAL_MS,
+			"%s timeout count=%u first_seq=%u sample_count=%u timeout=%u ms",
+			reports[i].name, (unsigned int)reports[i].total_count,
+			reports[i].seq_count > 0U ? reports[i].seq[0] : 0U,
+			(unsigned int)reports[i].seq_count, TEST_TIMEOUT_MS);
 	}
 }
 
@@ -519,14 +528,15 @@ static void summary_log(void)
 			current.unexpected_remote_rx - previous[channel].unexpected_remote_rx;
 		previous[channel] = current;
 
-		LOG_INF("%s %us tx[h2r=%u r2h=%u] ok[h2r=%u r2h=%u] err[send=%u timeout=%u unexpected=%u bp=%u] pending[h2r=%u r2h=%u] total_ok[h2r=%u r2h=%u]",
+		LOG_INF("%s %us tx[h2r=%u r2h=%u] ok[h2r=%u r2h=%u] err[send=%u timeout=%u "
+			"unexpected=%u bp=%u] pending[h2r=%u r2h=%u] total_ok[h2r=%u r2h=%u]",
 			name, SUMMARY_INTERVAL_MS / 1000U, delta.host_tx_count,
-			delta.remote_tx_count, delta.host_to_remote_pass,
-			delta.remote_to_host_pass, delta.host_send_err + delta.remote_send_err,
+			delta.remote_tx_count, delta.host_to_remote_pass, delta.remote_to_host_pass,
+			delta.host_send_err + delta.remote_send_err,
 			delta.host_to_remote_timeout + delta.remote_to_host_timeout,
 			delta.unexpected_host_rx + delta.unexpected_remote_rx,
-			delta.host_backpressure + delta.remote_backpressure, pending_h2r, pending_r2h,
-			current.host_to_remote_pass, current.remote_to_host_pass);
+			delta.host_backpressure + delta.remote_backpressure, pending_h2r,
+			pending_r2h, current.host_to_remote_pass, current.remote_to_host_pass);
 	}
 }
 
@@ -653,8 +663,8 @@ static int send_host_can(uint8_t channel, uint16_t seq)
 		channel_stats->host_send_err++;
 		k_spin_unlock(&stats.lock, key);
 		LOG_ERR_RATELIMIT_RATE(HOST_DEMO_LOG_INTERVAL_MS,
-				       "%s host send failed seq=%u ret=%d(%s)",
-				       channel_stats->name, seq, ret, can_err_name(ret));
+				       "%s host send failed seq=%u ret=%d(%s)", channel_stats->name,
+				       seq, ret, can_err_name(ret));
 		return ret;
 	}
 
@@ -752,14 +762,15 @@ int main(void)
 		CAN_IDEAL_MAX_FPS_PER_DIRECTION, CODE_MAX_FPS_PER_DIRECTION,
 		TARGET_FPS_PER_DIRECTION);
 	if (STRESS_BATCH_BASE == STRESS_BATCH_PEAK) {
-		LOG_INF("host stress start mode=4workers target=%ufps/dir/ch period=%ums gap=%ums batch=%u timeout=%ums pending=%u",
-			TARGET_FPS_PER_DIRECTION, TEST_PERIOD_MS, TEST_GAP_MS,
-			STRESS_BATCH_BASE, TEST_TIMEOUT_MS, PENDING_DEPTH);
+		LOG_INF("host stress start mode=4workers target=%ufps/dir/ch period=%ums gap=%ums "
+			"batch=%u timeout=%ums pending=%u",
+			TARGET_FPS_PER_DIRECTION, TEST_PERIOD_MS, TEST_GAP_MS, STRESS_BATCH_BASE,
+			TEST_TIMEOUT_MS, PENDING_DEPTH);
 	} else {
-		LOG_INF("host stress start mode=4workers target=%ufps/dir/ch period=%ums gap=%ums batch=%u..%u timeout=%ums pending=%u",
-			TARGET_FPS_PER_DIRECTION, TEST_PERIOD_MS, TEST_GAP_MS,
-			STRESS_BATCH_BASE, STRESS_BATCH_PEAK, TEST_TIMEOUT_MS,
-			PENDING_DEPTH);
+		LOG_INF("host stress start mode=4workers target=%ufps/dir/ch period=%ums gap=%ums "
+			"batch=%u..%u timeout=%ums pending=%u",
+			TARGET_FPS_PER_DIRECTION, TEST_PERIOD_MS, TEST_GAP_MS, STRESS_BATCH_BASE,
+			STRESS_BATCH_PEAK, TEST_TIMEOUT_MS, PENDING_DEPTH);
 	}
 	LOG_INF("host paths h2r:[can1->vcan0 can2->vcan1] r2h:[vcan0->can1 vcan1->can2]");
 
@@ -781,8 +792,8 @@ int main(void)
 
 	for (uint8_t i = 0U; i < ARRAY_SIZE(workers); i++) {
 		k_thread_create(&worker_threads[i], worker_stacks[i], WORKER_STACK_SIZE,
-				sender_worker_thread, &workers[i], NULL, NULL,
-				WORKER_PRIORITY, 0, K_NO_WAIT);
+				sender_worker_thread, &workers[i], NULL, NULL, WORKER_PRIORITY, 0,
+				K_NO_WAIT);
 		k_thread_name_set(&worker_threads[i], workers[i].name);
 	}
 
