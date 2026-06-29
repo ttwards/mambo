@@ -1,15 +1,19 @@
 # Mambo
 
+<p align="right">
+  <a href="README.md.eng"><img src="assets/nav-language.svg" height="16" alt=""> English</a>
+</p>
+
 <p align="center">
   <img src="assets/logo.svg" width="620" alt="Mambo">
 </p>
 
 <p align="center">
-  <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml">CI</a> ·
-  <a href="https://github.com/ttwards/mambo/actions/workflows/release.yml">Release</a> ·
-  <a href="https://github.com/ttwards/mambo">License</a> ·
-  <a href="https://github.com/ttwards/mambo/stargazers">Stars</a> ·
-  <a href="https://github.com/ttwards/mambo/forks">Forks</a>
+  <a href="https://github.com/ttwards/mambo/actions/workflows/ci.yml"><img src="assets/nav-ci.svg" height="16" alt=""> CI</a> ·
+  <a href="https://github.com/ttwards/mambo/actions/workflows/release.yml"><img src="assets/nav-release.svg" height="16" alt=""> Release</a> ·
+  <a href="https://github.com/ttwards/mambo"><img src="assets/nav-license.svg" height="16" alt=""> License</a> ·
+  <a href="https://github.com/ttwards/mambo/stargazers"><img src="assets/nav-stars.svg" height="16" alt=""> Stars</a> ·
+  <a href="https://github.com/ttwards/mambo/forks"><img src="assets/nav-forks.svg" height="16" alt=""> Forks</a>
 </p>
 
 Mambo 是一个面向机器人下位机开发的 Zephyr RTOS 模块。项目通过设备树描述电机、底盘、传感器、通信接口等硬件关系，并提供对应的驱动、协议库和样例程序。
