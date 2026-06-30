@@ -2,6 +2,7 @@
 #include "zephyr/device.h"
 #include "zephyr/drivers/can.h"
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 #include "zephyr/drivers/motor.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,8 +15,6 @@
 #define DT_DRV_COMPAT rs_motor
 
 LOG_MODULE_REGISTER(motor_rs, CONFIG_MOTOR_LOG_LEVEL);
-
-static int rs_motor_apply_mode(const struct device *dev, enum motor_mode mode, bool send);
 
 static float uint16_to_float(uint16_t x, float x_min, float x_max, int bits)
 {
@@ -54,10 +53,9 @@ static int get_motor_id(struct can_frame *frame)
 
 int rs_init(const struct device *dev)
 {
-	LOG_DBG("rs_init");
 	const struct rs_motor_cfg *cfg = dev->config;
 	if (!device_is_ready(cfg->common.phy)) {
-		LOG_ERR("CAN device not ready");
+		motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 		return -1;
 	}
 
@@ -75,16 +73,40 @@ int rs_init(const struct device *dev)
 		const struct rs_motor_cfg *cfg =
 			(const struct rs_motor_cfg *)(motor_devices[i]->config);
 
-		reg_can_dev(cfg->common.phy);
+		motor_can_sched_register_can(cfg->common.phy);
 		filters[i].flags = CAN_FILTER_IDE;
 		filters[i].mask = CAN_FILTER_MASK;
 		filters[i].id = (cfg->common.tx_id & 0xFF) << 8;
 		int err = can_add_rx_filter(cfg->common.phy, rs_can_rx_handler, 0, &filters[i]);
 		if (err < 0) {
-			LOG_ERR("Error adding CAN filter (err %d)", err);
+			motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 			return -1;
 		}
 	}
+	k_sleep(K_MSEC(100));
+
+	for (int i = 0; i < MOTOR_COUNT; i++) {
+		const struct rs_motor_cfg *cfg =
+			(const struct rs_motor_cfg *)(motor_devices[i]->config);
+
+		if (cfg->auto_report) {
+			struct rs_can_id id = {
+				.master_id = cfg->common.rx_id,
+				.motor_id = cfg->common.tx_id,
+				.reserved = 0,
+				.msg_type = Communication_Type_MotorReport,
+			};
+			struct can_frame frame = {
+				.data = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01, 0x00},
+				.dlc = 8,
+				.flags = CAN_FRAME_IDE,
+			};
+			frame.id = *(uint32_t *)&id;
+			motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-report");
+			k_sleep(K_MSEC(1));
+		}
+	}
+
 	k_timer_start(&rs_tx_timer, K_NO_WAIT, K_MSEC(5));
 	return 0;
 }
@@ -105,46 +127,42 @@ void rs_motor_control(const struct device *dev, enum motor_cmd cmd)
 	};
 	switch (cmd) {
 	case ENABLE_MOTOR:
-		if (rs_motor_apply_mode(dev, data->common.mode, true) < 0) {
-			LOG_ERR("Failed to set motor mode before enabling");
-			return;
-		}
 		id.msg_type = Communication_Type_MotorStop;
 		frame.id = *(uint32_t *)&id;
 		frame.data[0] = 0x01;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-stop-before-enable");
 		// clear error before enabling
 		id.msg_type = Communication_Type_MotorEnable;
 		frame.id = *(uint32_t *)&id;
 		frame.data[0] = 0x0;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-enable");
 		data->enabled = true;
 		break;
 	case DISABLE_MOTOR:
 		id.msg_type = Communication_Type_MotorStop;
 		frame.id = *(uint32_t *)&id;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-disable");
 		data->enabled = false;
-		data->online = false;
 		break;
 	case SET_ZERO:
 		id.msg_type = Communication_Type_SetPosZero;
 		frame.id = *(uint32_t *)&id;
 		frame.data[0] = 0x01;
 		data->common.angle = 0;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-set-zero");
 		break;
 	case CLEAR_ERROR:
 		id.msg_type = Communication_Type_MotorStop;
 		frame.id = *(uint32_t *)&id;
 		frame.data[0] = 0x01;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-clear-error");
 		data->enabled = false;
-		data->online = false;
+		break;
+	case CLEAR_PID:
 		break;
 	default:
-		LOG_ERR("Unsupport motor command: %d", cmd);
-		return;
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
+		break;
 	}
 }
 
@@ -186,7 +204,7 @@ static void rs_motor_pack(const struct device *dev, struct can_frame *frame)
 	return;
 }
 
-static int rs_motor_apply_mode(const struct device *dev, enum motor_mode mode, bool send)
+int rs_motor_set_mode(const struct device *dev, enum motor_mode mode)
 {
 
 	struct rs_motor_data *data = dev->data;
@@ -198,7 +216,7 @@ static int rs_motor_apply_mode(const struct device *dev, enum motor_mode mode, b
 		strcpy(mode_str, "mit");
 		break;
 	default:
-		LOG_DBG("Unsupported motor mode: %d", mode);
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 		return -ENOSYS;
 	}
 	struct can_frame frame = {0};
@@ -212,21 +230,16 @@ static int rs_motor_apply_mode(const struct device *dev, enum motor_mode mode, b
 	memcpy(&frame.data[0], &index, 2);
 
 	frame.data[4] = (uint8_t)mode;
-	if (send) {
-		can_send_queued(cfg->common.phy, &frame);
-	}
+	motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-set-mode");
 
 	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
 		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
-			LOG_ERR("PID params not found for mode: %d", mode);
+			motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 			break;
 		}
 		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
 			struct pid_config params = {0};
-			int ret = pid_get_params(cfg->common.pid_datas[i], &params);
-			if (ret != 0) {
-				return ret;
-			}
+			pid_get_params(cfg->common.pid_datas[i], &params);
 
 			data->common.mode = mode;
 			data->params.k_p = params.k_p;
@@ -237,19 +250,18 @@ static int rs_motor_apply_mode(const struct device *dev, enum motor_mode mode, b
 	return 0;
 }
 
-void rs_motor_set_mode(const struct device *dev, enum motor_mode mode)
+void rs_motor_set_mode_api(const struct device *dev, enum motor_mode mode)
 {
-	struct rs_motor_data *data = dev->data;
-
-	(void)rs_motor_apply_mode(dev, mode, data->enabled);
+	(void)rs_motor_set_mode(dev, mode);
 }
 
 static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 			      void *user_data)
 {
+	motor_can_sched_report_rx(can_dev, frame);
 	uint32_t id = get_motor_id(frame);
 	if (id == -1) {
-		LOG_ERR("Unknown motor ID: %d", frame->id);
+		motor_stats_inc(MOTOR_STAT_UNKNOWN_RX);
 		return;
 	}
 
@@ -264,15 +276,15 @@ static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	    can_id->msg_type == Communication_Type_MotorReport) {
 		data->err = (can_id->reserved) & 0x3f;
 		if (data->err) {
-			LOG_ERR("Motor %s error: 0x%02x", dev->name, data->err);
+			motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
 		}
 		data->RAWangle = (frame->data[0] << 8) | (frame->data[1]);
 		data->RAWrpm = (frame->data[2] << 8) | (frame->data[3]);
 		data->RAWtorque = (frame->data[4] << 8) | (frame->data[5]);
 		data->RAWtemp = (frame->data[6] << 8) | (frame->data[7]);
 		if (!data->online) {
-			data->target_pos =
-				uint16_to_float(data->RAWangle, -cfg->p_max, cfg->p_max, 16);
+			data->target_pos = uint16_to_float(data->RAWangle, -cfg->p_max,
+							   cfg->p_max, 16);
 			data->online = true;
 		}
 	}
@@ -301,7 +313,11 @@ void rs_tx_data_handler(struct k_work *work)
 				}
 			}
 			rs_motor_pack(motor_devices[i], &tx_frame);
-			can_send_queued(cfg->common.phy, &tx_frame);
+			motor_can_sched_send_reply(
+				cfg->common.phy, &tx_frame,
+				(Communication_Type_MotorFeedback << 24) |
+					((cfg->common.tx_id & 0xFF) << 8),
+				0x1F00FF00, 5U, "rs-control");
 			data->missed_times++;
 		}
 	}
@@ -316,9 +332,12 @@ int rs_get(const struct device *dev, motor_status_t *status)
 		return -ENODEV;
 	}
 
-	data->common.angle = RAD2DEG * uint16_to_float(data->RAWangle, -cfg->p_max, cfg->p_max, 16);
-	data->common.rpm = RADPS2RPM(uint16_to_float(data->RAWrpm, -cfg->v_max, cfg->v_max, 16));
-	data->common.torque = uint16_to_float(data->RAWtorque, -cfg->t_max, cfg->t_max, 16);
+	data->common.angle = RAD2DEG * uint16_to_float(data->RAWangle, -cfg->p_max,
+						       cfg->p_max, 16);
+	data->common.rpm = RADPS2RPM(
+		uint16_to_float(data->RAWrpm, -cfg->v_max, cfg->v_max, 16));
+	data->common.torque =
+		uint16_to_float(data->RAWtorque, -cfg->t_max, cfg->t_max, 16);
 	data->common.temperature = ((float)(data->RAWtemp)) / 10.0f;
 
 	status->angle = data->common.angle;
@@ -352,8 +371,8 @@ int rs_set(const struct device *dev, motor_status_t *status)
 		return -ENOSYS;
 	}
 	if (status->mode != data->common.mode) {
-		if (rs_motor_apply_mode(dev, status->mode, data->enabled) < 0) {
-			LOG_ERR("Failed to set motor mode");
+		if (rs_motor_set_mode(dev, status->mode) < 0) {
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 			return -EIO;
 		}
 	}

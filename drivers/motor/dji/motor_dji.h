@@ -61,7 +61,6 @@ struct dji_motor_data {
 
 	// Control status
 	bool online;
-	bool enabled;
 	uint8_t convert_num;
 	int8_t current_mode_index;
 
@@ -73,15 +72,14 @@ struct dji_motor_data {
 	int8_t RAWtemp;
 	int32_t angle_add;
 
-	uint32_t curr_time;
-	uint32_t prev_time;
+		uint32_t curr_time;
+		uint32_t prev_time;
 	int8_t missed_times;
 
 	float angle_offset;
 
 	float pid_angle_input;
-
-	int8_t pid_count;
+	float pid_ref_input;
 
 	struct k_spinlock data_input_lock;
 
@@ -89,7 +87,6 @@ struct dji_motor_data {
 	float target_angle;
 	float target_rpm;
 	float target_torque;
-	float target_torque_ff;
 	float target_current;
 	bool calculated;
 	bool new_data;

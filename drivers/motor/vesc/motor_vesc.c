@@ -9,6 +9,7 @@
 #include "zephyr/device.h"
 #include "zephyr/drivers/can.h"
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 #include "zephyr/drivers/motor.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -27,14 +28,13 @@ static void vesc_can_rx_handler(const struct device *can_dev, struct can_frame *
 
 int vesc_init(const struct device *dev)
 {
-	LOG_DBG("vesc_init");
 	const struct vesc_motor_config *cfg = dev->config;
 
 	if (!device_is_ready(cfg->common.phy)) {
-		LOG_ERR("CAN device not ready");
+		motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 		return -1;
 	}
-	reg_can_dev(cfg->common.phy);
+	motor_can_sched_register_can(cfg->common.phy);
 
 	struct can_filter filter = {0};
 	filter.flags = CAN_FILTER_IDE;
@@ -47,7 +47,7 @@ int vesc_init(const struct device *dev)
 	filter.id = *((uint32_t *)&id);
 	int err = can_add_rx_filter(cfg->common.phy, vesc_can_rx_handler, (void *)dev, &filter);
 	if (err < 0) {
-		LOG_ERR("Error adding CAN filter (err %d)", err);
+		motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 		return -1;
 	}
 	return 0;
@@ -98,18 +98,15 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 	frame->flags = CAN_FRAME_IDE;
 	if (data->enable == true) {
 		switch (data->common.mode) {
-		case ML_TORQUE:
-			vesc_can_id->msg_type = CAN_PACKET_SET_CURRENT;
-			if (data->target_current > cfg->i_max) {
-				LOG_ERR("vesc_motor_pack: target_current %f exceeds i_max %f",
-					(double)data->target_current, (double)cfg->i_max);
-				cur_tmp = cfg->i_max * 1000; // mA
-			} else if (data->target_current < -cfg->i_max) {
-				LOG_ERR("vesc_motor_pack: target_current %f exceeds negative i_max "
-					"%f",
-					(double)data->target_current, (double)(-cfg->i_max));
-				cur_tmp = -cfg->i_max * 1000; // mA
-			} else {
+			case ML_TORQUE:
+				vesc_can_id->msg_type = CAN_PACKET_SET_CURRENT;
+				if (data->target_current > cfg->i_max) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					cur_tmp = cfg->i_max * 1000; // mA
+				} else if (data->target_current < -cfg->i_max) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					cur_tmp = -cfg->i_max * 1000; // mA
+				} else {
 				cur_tmp = (int32_t)(data->target_current * 1000); // mA
 			}
 			frame->data[0] = (cur_tmp >> 24) & 0xFF;
@@ -117,19 +114,15 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 			frame->data[2] = (cur_tmp >> 8) & 0xFF;
 			frame->data[3] = cur_tmp & 0xFF;
 			break;
-		case ML_SPEED:
-			vesc_can_id->msg_type = CAN_PACKET_SET_RPM;
-			if (data->target_radps > cfg->v_max) {
-				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds v_max %f",
-				// 	data->target_radps, cfg->v_max);
-				vel_tmp = cfg->v_max * VESC_RPM_PER_RADPS;
-			} else if (data->target_radps < -cfg->v_max) {
-				// LOG_ERR("vesc_motor_pack: target_radps %f exceeds negative v_max
-				// "
-				// 	"%f",
-				// data->target_radps, -cfg->v_max);
-				vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
-			} else {
+			case ML_SPEED:
+				vesc_can_id->msg_type = CAN_PACKET_SET_RPM;
+				if (data->target_radps > cfg->v_max) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					vel_tmp = cfg->v_max * VESC_RPM_PER_RADPS;
+				} else if (data->target_radps < -cfg->v_max) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
+				} else {
 				vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
 			}
 			vel_tmp = vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
@@ -138,17 +131,15 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 			frame->data[2] = (vel_tmp >> 8) & 0xFF;
 			frame->data[3] = vel_tmp & 0xFF;
 			break;
-		case ML_ANGLE:
-			vesc_can_id->msg_type = CAN_PACKET_SET_POS;
-			if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
-				LOG_ERR("vesc_motor_pack: target_angle %f exceeds 360 degree",
-					(double)(data->target_angle * VESC_DEG_PER_RAD));
-				data->target_angle = cfg->p_max * VESC_RAD_PER_DEG;
-			} else if (data->target_angle < (-cfg->p_max * VESC_RAD_PER_DEG)) {
-				LOG_ERR("vesc_motor_pack: target_angle %f less than 0 degree",
-					(double)(data->target_angle * VESC_DEG_PER_RAD));
-				data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
-			}
+			case ML_ANGLE:
+				vesc_can_id->msg_type = CAN_PACKET_SET_POS;
+				if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					data->target_angle = cfg->p_max * VESC_RAD_PER_DEG;
+				} else if (data->target_angle < (-cfg->p_max * VESC_RAD_PER_DEG)) {
+					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+					data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
+				}
 			pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
 			frame->data[0] = (pos_tmp >> 24) & 0xFF;
 			frame->data[1] = (pos_tmp >> 16) & 0xFF;
@@ -225,25 +216,21 @@ int vesc_set(const struct device *dev, motor_status_t *status)
 	case ML_SPEED:
 		vesc_set_speed(dev, status->rpm);
 		break;
-	case ML_ANGLE:
-		vesc_set_angle(dev, status->angle);
-		break;
-	default:
-		LOG_ERR("Unsupported motor mode: %d", status->mode);
-		return -ENOSYS;
+		case ML_ANGLE:
+			vesc_set_angle(dev, status->angle);
+			break;
+		default:
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+			return -ENOSYS;
 	}
 
 	if (status->mode != data->common.mode) {
 		vesc_motor_set_mode(dev, status->mode);
 	}
 
-	if (!data->enable) {
-		return 0;
-	}
-
 	struct can_frame frame = {0};
 	vesc_motor_pack(dev, &frame);
-	can_send_queued(cfg->common.phy, &frame);
+	motor_can_sched_send_prio(cfg->common.phy, &frame, false, "vesc-control");
 
 	return 0;
 }
@@ -251,6 +238,7 @@ int vesc_set(const struct device *dev, motor_status_t *status)
 static void vesc_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 				void *user_data)
 {
+	motor_can_sched_report_rx(can_dev, frame);
 	const struct device *dev = (const struct device *)user_data;
 	struct vesc_motor_data *data = (struct vesc_motor_data *)(dev->data);
 	struct vesc_can_id *vesc_can_id = (struct vesc_can_id *)&(frame->id);
