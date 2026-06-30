@@ -37,6 +37,21 @@
 
     aliases {
         sw0 = &user_button;
+        led-strip = &rgb_led;
+    };
+
+    power_en {
+        compatible = "gpio-leds";
+
+        power1: power1 {
+            label = "POWER_24V_1";
+            gpios = <&gpioc 14 GPIO_ACTIVE_HIGH>;
+        };
+
+        power2: power2 {
+            label = "POWER_24V_2";
+            gpios = <&gpioc 13 GPIO_ACTIVE_HIGH>;
+        };
     };
 };
 
@@ -54,34 +69,34 @@
 };
 
 &pll {
-    div-m = <12>;
-    mul-n = <275>;
-    div-p = <1>;    /* DIVP1: 550 MHz */
-    div-q = <2>;    /* DIVQ1: 275 MHz */
-    div-r = <2>;    /* DIVR1: 275 MHz */
+    div-m = <2>;
+    mul-n = <40>;
+    div-p = <1>;    /* DIVP1: 480 MHz */
+    div-q = <4>;    /* DIVQ1: 120 MHz */
+    div-r = <2>;    /* DIVR1: 240 MHz */
     clocks = <&clk_hse>;
     status = "okay";
 };
 
 &pll2 {
     div-m = <2>;
-    mul-n = <40>;
-    div-p = <4>;    /* DIVP2: 120 MHz */
-    div-q = <4>;    /* DIVQ2: 120 MHz */
-    div-r = <2>;    /* DIVR2: 240 MHz */
+    mul-n = <16>;
+    div-p = <2>;    /* DIVP2: 96 MHz */
+    div-q = <2>;    /* DIVQ2: 96 MHz */
+    div-r = <2>;    /* DIVR2: 96 MHz */
     clocks = <&clk_hse>;
     status = "okay";
 };
 
 &rcc {
     clocks = <&pll>;
-    clock-frequency = <DT_FREQ_M(550)>;
-    d1cpre = <1>;   /* CPU: 550   MHz */
-    hpre = <2>;     /* HCLK: 275   MHz */
-    d1ppre = <2>;   /* APB1: 137.5 MHz */
-    d2ppre1 = <2>;  /* APB2: 137.5 MHz */
-    d2ppre2 = <2>;  /* APB3: 137.5 MHz */
-    d3ppre = <2>;   /* APB4: 137.5 MHz */
+    clock-frequency = <DT_FREQ_M(480)>;
+    d1cpre = <1>;   /* CPU: 480 MHz */
+    hpre = <2>;     /* HCLK: 240 MHz */
+    d1ppre = <2>;   /* APB3: 120 MHz */
+    d2ppre1 = <2>;  /* APB1: 120 MHz */
+    d2ppre2 = <2>;  /* APB2: 120 MHz */
+    d3ppre = <2>;   /* APB4: 120 MHz */
 };
 
 &pwr {
@@ -111,7 +126,7 @@
 &spi2 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1, 14U)>,
-             <&rcc STM32_SRC_PLL2_P SPI123_SEL(0)>;
+             <&rcc STM32_SRC_PLL1_Q SPI123_SEL(0)>;
     pinctrl-0 = <&spi2_sck_pb13 &spi2_miso_pc2_c &spi2_mosi_pc1>;
     pinctrl-names = "default";
     cs-gpios = <&gpioc 0 GPIO_ACTIVE_LOW>,
@@ -152,7 +167,7 @@
 &spi6 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB4, 5U)>,
-             <&rcc STM32_SRC_PLL2_Q SPI6_SEL(1)>;
+             <&rcc STM32_SRC_HSE SPI6_SEL(5)>;
     pinctrl-0 = <&spi6_sck_pa5 &spi6_mosi_pa7>;
     pinctrl-names = "default";
 
@@ -208,7 +223,7 @@
 can1: &fdcan1 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
-             <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
+             <&rcc STM32_SRC_PLL1_Q FDCAN_SEL(1)>;
     pinctrl-0 = <&fdcan1_rx_pd0 &fdcan1_tx_pd1>;
     pinctrl-names = "default";
 };
@@ -216,7 +231,7 @@ can1: &fdcan1 {
 can2: &fdcan2 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
-             <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
+             <&rcc STM32_SRC_PLL1_Q FDCAN_SEL(1)>;
     pinctrl-0 = <&fdcan2_rx_pb5 &fdcan2_tx_pb6>;
     pinctrl-names = "default";
 };
@@ -224,7 +239,7 @@ can2: &fdcan2 {
 can3: &fdcan3 {
     status = "okay";
     clocks = <&rcc STM32_CLOCK(APB1_2, 8U)>,
-             <&rcc STM32_SRC_PLL2_Q FDCAN_SEL(2)>;
+             <&rcc STM32_SRC_PLL1_Q FDCAN_SEL(1)>;
     pinctrl-0 = <&fdcan3_rx_pd12 &fdcan3_tx_pd13>;
     pinctrl-names = "default";
 };

@@ -16,15 +16,22 @@
 
 LOG_MODULE_REGISTER(board_init, CONFIG_BOARD_LOG_LEVEL);
 
+#ifdef CONFIG_BOARD_DM_MC02
+#include <zephyr/drivers/led_strip.h>
+#else
 struct led_rgb {
 	uint8_t r;
 	uint8_t g;
 	uint8_t b;
 };
+#endif
 
 #ifdef CONFIG_BOARD_DM_MC02
 #define XT30_1_NODE DT_NODELABEL(power1)
 #define XT30_2_NODE DT_NODELABEL(power2)
+#define STRIP_NODE  DT_ALIAS(led_strip)
+
+const struct device *strip = DEVICE_DT_GET(STRIP_NODE);
 
 #if DT_NODE_EXISTS(XT30_1_NODE) && DT_NODE_HAS_PROP(XT30_1_NODE, gpios) &&                         \
 	DT_NODE_EXISTS(XT30_2_NODE) && DT_NODE_HAS_PROP(XT30_2_NODE, gpios)
@@ -37,14 +44,17 @@ void pwr_init(void)
 	gpio_pin_configure_dt(&pwr2, GPIO_OUTPUT_HIGH);
 }
 
+int set_rgb_led_brightness(struct led_rgb *color)
+{
+	return led_strip_update_rgb(strip, color, 1);
+}
+
 #define PWR_INIT pwr_init();
 #else
 #define PWR_INIT
 #endif
 
-#define LED_INIT
-
-#define set_rgb_led_brightness(color)
+#define LED_INIT led_init();
 
 #endif /* CONFIG_BOARD_DM_MC02 */
 
@@ -153,6 +163,12 @@ int set_rgb_led_brightness(struct led_rgb *color)
 
 #endif /* CONFIG_BOARD_ROBOMASTER_BOARD_C */
 
+#ifdef CONFIG_BOARD_DM_MC02
+#define STATUS_LED_MAX_CHANNEL 0x7e
+#else
+#define STATUS_LED_MAX_CHANNEL 0xff
+#endif
+
 #define RGB(_r, _g, _b) ((struct led_rgb){.r = (_r), .g = (_g), .b = (_b)})
 
 void led_serivce_func(void *p1, void *p2, void *p3)
@@ -188,8 +204,8 @@ void led_serivce_func(void *p1, void *p2, void *p3)
 #endif
 
 		// // 映射到RGB值 (红色表示高负载，绿色表示低负载)
-		uint8_t red = (uint8_t)((cpu_usage / 100.0f) * 0xff);
-		uint8_t green = (uint8_t)((1.0f - cpu_usage / 100.0f) * 0xff);
+		uint8_t red = (uint8_t)((cpu_usage / 100.0f) * STATUS_LED_MAX_CHANNEL);
+		uint8_t green = (uint8_t)((1.0f - cpu_usage / 100.0f) * STATUS_LED_MAX_CHANNEL);
 
 		// if (blue_decrease) {
 		// 	blue--;
@@ -218,6 +234,14 @@ static struct k_thread led_service_thread;
 void led_init(void)
 {
 	struct led_rgb color = RGB(0x4F, 0x4F, 0x4F);
+
+#ifdef CONFIG_BOARD_DM_MC02
+	if (!device_is_ready(strip)) {
+		LOG_ERR("WS2812 LED strip device is not ready");
+		return;
+	}
+#endif /* CONFIG_BOARD_DM_MC02 */
+
 	set_rgb_led_brightness(&color);
 	k_sleep(K_MSEC(300));
 
@@ -247,7 +271,9 @@ int board_init(void)
 {
 	k_sleep(K_MSEC(550));
 	PWR_INIT
+#if IS_ENABLED(CONFIG_ARES_BOARD_STATUS_LED)
 	LED_INIT
+#endif
 	LOG_INF("Board init done.");
 	return 0;
 }

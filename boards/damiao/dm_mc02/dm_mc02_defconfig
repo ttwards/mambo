@@ -20,3 +20,7 @@ CONFIG_CAN=y
 CONFIG_LED_STRIP=y
 CONFIG_SENSOR=y
 CONFIG_BMI08X=y
+
+# Board status LED uses scheduler runtime stats to show CPU load.
+CONFIG_THREAD_RUNTIME_STATS=y
+CONFIG_SCHED_THREAD_USAGE_ALL=y

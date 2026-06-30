@@ -32,6 +32,12 @@ config BOARD_LOG_LEVEL
 	help
 	  Set BOARD_LOG_LEVEL
 
+config ARES_BOARD_STATUS_LED
+	bool "ARES board status LED service"
+	default y
+	help
+	  Enable the board status LED service that maps CPU usage to LED color.
+
 config IMU_PWM_TEMP_CTRL
 	select PID
     bool "IMU_PWM_TEMP_CTRL"
