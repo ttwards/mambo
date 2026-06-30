@@ -2,6 +2,7 @@
 #include "zephyr/device.h"
 #include "zephyr/drivers/can.h"
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 #include "zephyr/drivers/motor.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -38,10 +39,9 @@ int float_to_uint(float x, float x_min, float x_max, int bits)
 
 int mi_init(const struct device *dev)
 {
-	LOG_DBG("mi_init");
 	const struct mi_motor_cfg *cfg = dev->config;
 	if (!device_is_ready(cfg->common.phy)) {
-		LOG_ERR("CAN device not ready");
+		motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 		return -1;
 	}
 	if (k_work_busy_get(&mi_init_work) != 0) {
@@ -57,7 +57,6 @@ int mi_init(const struct device *dev)
 
 void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 {
-	// LOG_DBG("mi_motor_control");
 	struct mi_motor_data *data = dev->data;
 	const struct mi_motor_cfg *cfg = dev->config;
 
@@ -71,16 +70,14 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 	mi_can_id->id = cfg->common.id;
 	switch (cmd) {
 	case ENABLE_MOTOR:
-
 		mi_can_id->mi_msg_mode = Communication_Type_MotorEnable;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-enable");
 		data->online = true;
 		data->enabled = true;
 		break;
 	case DISABLE_MOTOR:
-
 		mi_can_id->mi_msg_mode = Communication_Type_MotorStop;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-disable");
 		data->online = false;
 		data->enabled = false;
 		break;
@@ -89,23 +86,21 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 		frame.data[0] = 0x01;
 		data->delta_deg_sum = 0;
 		data->common.angle = 0;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-set-zero");
 		break;
 
 	case CLEAR_PID:
-
 		break;
 	case CLEAR_ERROR:
-
 		break;
-		LOG_ERR("Unsupport motor command: %d", cmd);
+	default:
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
 		return;
 	}
 }
 
 static void mi_motor_pack(const struct device *dev, struct can_frame *frame)
 {
-	// LOG_DBG("mi_motor_pack");
 	uint32_t pos_tmp, vel_tmp, kp_tmp, kd_tmp, tor_tmp, cur_tep;
 
 	struct mi_motor_data *data = (struct mi_motor_data *)(dev->data);
@@ -210,7 +205,7 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		data->limit_cur = 23.0f;
 		break;
 	default:
-		LOG_DBG("Unknown motor mode: %d", mode);
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 		break;
 	}
 	struct can_frame frame = {0};
@@ -223,7 +218,7 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	memcpy(&frame.data[0], &index, 2);
 
 	frame.data[4] = (uint8_t)mode;
-	can_send_queued(cfg->common.phy, &frame);
+	motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-set-mode");
 
 	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
 		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
@@ -259,10 +254,10 @@ static struct can_filter filters[MOTOR_COUNT];
 static void mi_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 			      void *user_data)
 {
-	// LOG_DBG("mi_can_rx_handler");
+	motor_can_sched_report_rx(can_dev, frame);
 	int id = get_motor_id(frame);
 	if (id == -1) {
-		LOG_ERR("Unknown motor ID: %d", frame->id);
+		motor_stats_inc(MOTOR_STAT_UNKNOWN_RX);
 		return;
 	}
 
@@ -276,7 +271,7 @@ static void mi_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	if (can_id->mi_msg_mode == Communication_Type_MotorFeedback) {
 		data->err = ((can_id->data) >> 8) & 0x3f;
 		if (data->err) {
-			LOG_ERR("id:%d err:%d", id, data->err);
+			motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
 		}
 		data->update = true;
 		data->RAWangle = (frame->data[0] << 8) | (frame->data[1]);
@@ -292,7 +287,6 @@ static void mi_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 
 void mi_rx_data_handler(struct k_work *work)
 {
-	// LOG_DBG("mi_rx_data_handler");
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 		struct mi_motor_data *data = (struct mi_motor_data *)(motor_devices[i]->data);
 		if (!data->update) {
@@ -315,13 +309,11 @@ void mi_rx_data_handler(struct k_work *work)
 
 void mi_tx_isr_handler(struct k_timer *dummy)
 {
-	// LOG_DBG("mi_tx_isr_handler");
 	k_work_submit_to_queue(&mi_work_queue, &mi_tx_data_handle);
 }
 
 void mi_isr_init_handler(struct k_timer *dummy)
 {
-	LOG_DBG("mi_isr_init_handler");
 	dummy->expiry_fn = mi_tx_isr_handler;
 	k_work_queue_start(&mi_work_queue, mi_work_queue_stack, CAN_SEND_STACK_SIZE,
 			   CAN_SEND_PRIORITY, NULL);
@@ -330,17 +322,14 @@ void mi_isr_init_handler(struct k_timer *dummy)
 
 void mi_tx_data_handler(struct k_work *work)
 {
-	// LOG_DBG("mi_tx_data_handler");
 	struct can_frame tx_frame[2] = {0};
 
 	tx_frame[0].flags = CAN_FRAME_IDE;
 	tx_frame[1].flags = CAN_FRAME_IDE;
 	for (int i = 0; i < MOTOR_COUNT; i++) {
-		// LOG_INF("begin");
 		struct mi_motor_data *data = motor_devices[i]->data;
 		const struct mi_motor_cfg *cfg = motor_devices[i]->config;
 		if (data->enabled) {
-			int can_id = get_can_id(motor_devices[i]);
 			if (data->missed_times > 600) {
 				LOG_ERR("Motor %s is not responding, setting it to offline.",
 					motor_devices[i]->name);
@@ -351,43 +340,45 @@ void mi_tx_data_handler(struct k_work *work)
 				// struct mi_can_id *mi_can_id = (struct mi_can_id *)&(frame.id);
 				// mi_can_id->id = cfg->common.id;
 				// mi_can_id->mi_msg_mode = Communication_Type_MotorEnable;
-				// can_send_queued(cfg->common.phy, &frame);
 				// data->online = true;
 				// data->enabled = true;
 				// data->missed_times = 0;
 			}
 			mi_motor_pack(motor_devices[i], tx_frame);
 
-			can_send_queued(cfg->common.phy, &tx_frame[0]);
+			motor_can_sched_send_reply(
+				cfg->common.phy, &tx_frame[0],
+				(Communication_Type_MotorFeedback << 24) |
+					((cfg->common.id & 0xFF) << 8),
+				0x1F00FF00, 5U, "mi-control");
 
 			if ((data->common.mode == PV) || (data->common.mode == VO)) {
-				can_send_queued(cfg->common.phy, &tx_frame[1]);
+				motor_can_sched_send_prio(cfg->common.phy, &tx_frame[1], true,
+							  "mi-follow");
 			}
 			data->missed_times++;
 		}
 		if (i % 2 == 1) {
 			k_usleep(500);
 		}
-		// LOG_INF("end");
 	}
 }
 
 void mi_init_handler(struct k_work *work)
 {
-	LOG_DBG("mi_init_handler");
 	k_timer_stop(&mi_tx_timer);
 
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 		const struct mi_motor_cfg *cfg =
 			(const struct mi_motor_cfg *)(motor_devices[i]->config);
 
-		reg_can_dev(cfg->common.phy);
+		motor_can_sched_register_can(cfg->common.phy);
 		filters[i].flags = CAN_FILTER_IDE;
 		filters[i].mask = 0x00000000;
 		filters[i].id = 0x00000000;
 		int err = can_add_rx_filter(cfg->common.phy, mi_can_rx_handler, 0, &filters[i]);
 		if (err < 0) {
-			LOG_ERR("Error adding CAN filter (err %d)", err);
+			motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 		}
 	}
 	k_sleep(K_MSEC(100));
@@ -457,15 +448,14 @@ int mi_set(const struct device *dev, motor_status_t *status)
 		}
 	}
 	if (status->mode != data->common.mode) {
-		// LOG_DBG("mi_set: mode changed from %d to %d", data->common.mode, status->mode);
 		data->common.mode = status->mode;
 		if (mi_motor_set_mode(dev, status->mode) < 0) {
-			LOG_ERR("Failed to set motor mode");
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 			return -EIO;
 		}
-	} else {
-		return 0; // No mode change, no need to set
 	}
+
+	return 0;
 }
 
 DT_INST_FOREACH_STATUS_OKAY(MIMOTOR_INST)

@@ -24,6 +24,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/time_units.h>
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 
 #define DT_DRV_COMPAT dji_motor
 
@@ -185,13 +186,13 @@ int dji_set_mode(const struct device *dev, enum motor_mode mode)
 	case ML_ANGLE:
 		strcpy(mode_str, "angle");
 		break;
-	case ML_SPEED:
-		strcpy(mode_str, "speed");
-		break;
-	default:
-		LOG_ERR("Unsupported motor mode: %d", mode);
-		return -ENOSYS;
-	}
+		case ML_SPEED:
+			strcpy(mode_str, "speed");
+			break;
+		default:
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+			return -ENOSYS;
+		}
 
 	data->current_mode_index = -1;
 
@@ -208,7 +209,7 @@ int dji_set_mode(const struct device *dev, enum motor_mode mode)
 	}
 
 	if (data->current_mode_index == -1) {
-		LOG_ERR("No motor mode found for %s", mode_str);
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 		return -ENOSYS;
 	}
 
@@ -271,7 +272,7 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 			frame.data[1] = (cfg->common.rx_id - 0x200) >> 8;
 			frame.data[2] = 0x55;
 			frame.data[3] = 0x3C;
-			can_send_queued(cfg->common.phy, &frame);
+				motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-set-zero");
 		}
 		break;
 	case CLEAR_PID:
@@ -287,7 +288,7 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 			frame.data[1] = (cfg->common.rx_id - 0x200) >> 8;
 			frame.data[2] = 0x55;
 			frame.data[3] = 0x50;
-			can_send_queued(cfg->common.phy, &frame);
+				motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-clear-error");
 		}
 		break;
 	}
@@ -336,9 +337,9 @@ int dji_init(const struct device *dev)
 		} else {
 			data->ctrl_struct->mask[frame_id] |= 1 << id;
 		}
-		if (data->ctrl_struct->rx_ids[id]) {
-			LOG_ERR("Conflicting motor id: %d, dev name: %s", id + 1, dev->name);
-		}
+			if (data->ctrl_struct->rx_ids[id]) {
+				motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
+			}
 		data->ctrl_struct->rx_ids[id] = cfg->common.rx_id;
 
 		data->ctrl_struct->full_handle.handler = dji_tx_handler;
@@ -371,10 +372,10 @@ int dji_init(const struct device *dev)
 					pid_reg_output(cfg->common.pid_datas[i - 1],
 						       &data->target_torque);
 				}
-			} else {
-				LOG_ERR("Unsupported motor mode: %s", cfg->common.capabilities[i]);
-				return -1;
-			}
+				} else {
+					motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+					return -1;
+				}
 			pid_reg_time(cfg->common.pid_datas[i], &(data->curr_time),
 				     &(data->prev_time));
 		}
@@ -390,9 +391,9 @@ int dji_init(const struct device *dev)
 			data->convert_num = M2006_CONVERT_NUM;
 		} else if (cfg->is_dm_motor) {
 			data->convert_num = DM_MOTOR_CONVERT_NUM;
-		} else {
-			LOG_ERR("Unsupported motor type");
-		}
+			} else {
+				motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
+			}
 
 		if (!device_is_ready(cfg->common.phy)) {
 			return -1;
@@ -421,6 +422,7 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 	if (!data) {
 		return;
 	}
+	motor_can_sched_report_rx(can_dev, frame);
 
 	if (data->missed_times > 3) {
 		data->missed_times = 0;
@@ -432,12 +434,11 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 			(const struct dji_motor_config *)motor_cfg->follow->config;
 		if (motor_cfg->follow && motor_cfg->common.phy == follow_cfg->common.phy) {
 			data->ctrl_struct->mask[frame_id] |= 1 << motor_id(motor_cfg->follow);
-		} else {
-			data->ctrl_struct->mask[frame_id] |= 1 << id;
-		}
-		LOG_ERR("Motor \"%s\" on canbus \"%s\" is responding again.", dev->name,
-			motor_cfg->common.phy->name);
-	} else if (data->missed_times > 0) {
+			} else {
+				data->ctrl_struct->mask[frame_id] |= 1 << id;
+			}
+			motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
+		} else if (data->missed_times > 0) {
 		data->missed_times--;
 	}
 
@@ -685,12 +686,12 @@ void dji_init_handler(struct k_work *work)
 				.mask = 0x7FF,
 				.flags = 0,
 			};
-			int err = can_add_rx_filter(cfg->common.phy, can_rx_callback,
-						    (void *)motor_devices[i], &filter);
-			if (err < 0) {
-				LOG_ERR("Error attaching CAN RX callback (err %d)", err);
+				int err = can_add_rx_filter(cfg->common.phy, can_rx_callback,
+							    (void *)motor_devices[i], &filter);
+				if (err < 0) {
+					motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
+				}
 			}
-		}
 	}
 	dji_miss_handle_timer.expiry_fn = dji_miss_isr_handler;
 	k_timer_start(&dji_miss_handle_timer, K_NO_WAIT, K_MSEC(4));
@@ -729,14 +730,15 @@ void dji_tx_handler(struct k_work *work)
 					packed = true;
 				}
 			}
-			if (packed) {
-				txframe.id = index_to_frameID(i);
-				txframe.dlc = 8;
-				txframe.flags = 0;
-				const struct device *can_dev = ctrl_struct->can_dev;
-				can_send_queued(can_dev, &txframe);
+				if (packed) {
+					txframe.id = index_to_frameID(i);
+					txframe.dlc = 8;
+					txframe.flags = 0;
+					const struct device *can_dev = ctrl_struct->can_dev;
+					motor_can_sched_send_prio(can_dev, &txframe, true,
+								  "dji-feedback-control");
+				}
 			}
-		}
 	}
 }
 

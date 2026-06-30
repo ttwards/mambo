@@ -2,6 +2,7 @@
 #include "zephyr/device.h"
 #include "zephyr/drivers/can.h"
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 #include "zephyr/drivers/motor.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -45,7 +46,7 @@ int lk_init(const struct device *dev)
 {
 	const struct lk_motor_cfg *cfg = dev->config;
 	if (!device_is_ready(cfg->common.phy)) {
-		LOG_ERR("CAN device %s not ready", cfg->common.phy->name);
+		motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 		return -ENODEV;
 	}
 	if (atomic_cas(&global_init_once, 0, 1)) {
@@ -72,21 +73,20 @@ void lk_motor_control(const struct device *dev, enum motor_cmd cmd)
 	switch (cmd) {
 	case ENABLE_MOTOR:
 		frame.data[0] = LK_CMD_MOTOR_RUN; // 0x88
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "lk-enable");
 		k_msleep(10);
 		data->online = true;
 		data->enabled = true;
 		break;
 	case DISABLE_MOTOR:
 		frame.data[0] = LK_CMD_MOTOR_OFF; // 0x80
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "lk-disable");
 		data->online = false;
 		data->enabled = false;
 		break;
 	case SET_ZERO:
 		// 设置当前位置为零点 (写入ROM)
 		// frame.data[0] = LK_CMD_SET_ZERO_ROM;
-		// can_send_queued(cfg->common.phy, &frame);
 
 		// 设置当前位置为零点
 		frame.data[0] = LK_CMD_SET_ZERO; // 0x95
@@ -95,14 +95,16 @@ void lk_motor_control(const struct device *dev, enum motor_cmd cmd)
 		frame.data[5] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 8) & 0xFF;
 		frame.data[6] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 16) & 0xFF;
 		frame.data[7] = (((uint32_t)(set_angle * LK_POS_FACTOR)) >> 24) & 0xFF;
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "lk-set-zero");
 		break;
 	case CLEAR_ERROR:
 		frame.data[0] = LK_CMD_CLEAR_ERR; // 0x9B
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "lk-clear-error");
+		break;
+	case CLEAR_PID:
 		break;
 	default:
-		LOG_ERR("Unsupport motor command: %d", cmd);
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
 		return;
 	}
 	// }
@@ -167,8 +169,6 @@ static void lk_motor_pack(const struct device *dev, struct can_frame *frame)
 		frame->data[5] = (val_i32 >> 8) & 0xFF;
 		frame->data[6] = (val_i32 >> 16) & 0xFF;
 		frame->data[7] = (val_i32 >> 24) & 0xFF;
-		// if(cfg->id==1){
-		// LOG_ERR("LK Motor ID %d Target Pos: %.2f", cfg->id, data->target_pos);}
 		break;
 
 	default:
@@ -187,8 +187,6 @@ int lk_set(const struct device *dev, motor_status_t *status)
 	case ML_ANGLE:
 		data->common.mode = ML_ANGLE;
 		data->target_pos = status->angle;
-		// if(cfg->id==1){
-		// LOG_ERR("LK Motor ID %d Set Pos: %.2f", cfg->id, data->target_pos);}
 		if (status->speed_limit[0] == 0) {
 			data->limit_speed = 8000.0f; // 默认800 dps
 
@@ -273,18 +271,17 @@ static struct can_filter filters[MOTOR_COUNT];
 static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 			      void *user_data)
 {
+	motor_can_sched_report_rx(can_dev, frame);
 	int idx = get_motor_id(frame);
 	if (idx == -1) {
 		return;
 	}
 
 	struct lk_motor_data *data = (struct lk_motor_data *)(motor_devices[idx]->data);
-	const struct lk_motor_cfg *cfg = (const struct lk_motor_cfg *)(motor_devices[idx]->config);
 	data->missed_times--;
 	if (!data->online) {
 		data->missed_times = 0;
 		data->online = true;
-		LOG_INF("Motor [%d] ONLINE (Feedback restored)", cfg->id);
 	}
 	// Data[0]: 命令字节
 	// Data[1]: 温度
@@ -294,7 +291,7 @@ static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	if (frame->data[0] == 0x9A) {
 		for (int i = 0; i < 8; i++) {
 			if (frame->data[7] >> i & 0x01) {
-				LOG_DBG("Motor %d Error Bit %d", idx, i);
+				motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
 			}
 		}
 		return;
@@ -353,7 +350,9 @@ void lk_tx_data_handler(struct k_work *work)
 			// 	continue;
 			// }
 			lk_motor_pack(motor_devices[i], &tx_frame);
-			can_send_queued(cfg->common.phy, &tx_frame);
+			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
+						   LK_CMD_ID_BASE + cfg->id, CAN_STD_ID_MASK,
+						   5U, "lk-control");
 		}
 		// if (i % 2 == 1) {
 		//     k_usleep(500);
@@ -390,7 +389,8 @@ void lk_txpid_data_handler(struct k_work *work)
 				int16_t kd_val = (int16_t)(data->params[0].k_d);
 				tx_frame.data[6] = kd_val & 0xFF;
 				tx_frame.data[7] = (kd_val >> 8) & 0xFF;
-				can_send_queued(cfg->common.phy, &tx_frame);
+				motor_can_sched_send_prio(cfg->common.phy, &tx_frame, true,
+							  "lk-pid-angle");
 			}
 			k_sleep(K_USEC(120));
 			if (data->pidupdate[1]) {
@@ -410,7 +410,8 @@ void lk_txpid_data_handler(struct k_work *work)
 				int16_t kd_val = (int16_t)(data->params[1].k_d);
 				tx_frame.data[6] = kd_val & 0xFF;
 				tx_frame.data[7] = (kd_val >> 8) & 0xFF;
-				can_send_queued(cfg->common.phy, &tx_frame);
+				motor_can_sched_send_prio(cfg->common.phy, &tx_frame, true,
+							  "lk-pid-speed");
 			}
 			k_sleep(K_USEC(120));
 			if (data->pidupdate[2]) {
@@ -430,7 +431,8 @@ void lk_txpid_data_handler(struct k_work *work)
 				int16_t kd_val = (int16_t)(data->params[2].k_d);
 				tx_frame.data[6] = kd_val & 0xFF;
 				tx_frame.data[7] = (kd_val >> 8) & 0xFF;
-				can_send_queued(cfg->common.phy, &tx_frame);
+				motor_can_sched_send_prio(cfg->common.phy, &tx_frame, true,
+							  "lk-pid-torque");
 			}
 			k_sleep(K_USEC(120));
 		}
@@ -438,14 +440,12 @@ void lk_txpid_data_handler(struct k_work *work)
 }
 void lk_init_handler(struct k_work *work)
 {
-	// LOG_DBG("lk_init_handler");
-
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 
 		const struct lk_motor_cfg *cfg =
 			(const struct lk_motor_cfg *)(motor_devices[i]->config);
 		struct lk_motor_data *data = motor_devices[i]->data;
-		reg_can_dev(cfg->common.phy);
+		motor_can_sched_register_can(cfg->common.phy);
 		data->pidupdate[0] = true;
 		data->pidupdate[1] = true;
 		data->pidupdate[2] = true;
@@ -459,7 +459,7 @@ void lk_init_handler(struct k_work *work)
 
 		int err = can_add_rx_filter(cfg->common.phy, lk_can_rx_handler, 0, &filters[i]);
 		if (err < 0) {
-			LOG_ERR("Error adding CAN filter (err %d)", err);
+			motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 		}
 		for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
 

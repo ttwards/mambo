@@ -148,6 +148,7 @@ int rs_set(const struct device *dev, motor_status_t *status);
 int rs_get(const struct device *dev, motor_status_t *status);
 void rs_motor_control(const struct device *dev, enum motor_cmd cmd);
 int rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
+void rs_motor_set_mode_api(const struct device *dev, enum motor_mode mode);
 
 void rs_tx_isr_handler(struct k_timer *dummy);
 void rs_tx_data_handler(struct k_work *work);
@@ -156,7 +157,7 @@ static const struct motor_driver_api rs_motor_api = {
 	.motor_get = rs_get,
 	.motor_set = rs_set,
 	.motor_control = rs_motor_control,
-	.motor_set_mode = rs_motor_set_mode,
+	.motor_set_mode = rs_motor_set_mode_api,
 };
 
 #define MOTOR_COUNT            DT_NUM_INST_STATUS_OKAY(rs_motor)

@@ -10,6 +10,7 @@
 #include <zephyr/devicetree.h>
 #include <sys/_stdint.h>
 #include "../common/common.h"
+#include "../common/motor_can_sched.h"
 #include "motor_dm.h"
 #include "syscalls/kernel.h"
 #include "zephyr/drivers/can.h"
@@ -91,31 +92,31 @@ void dm_control(const struct device *dev, enum motor_cmd cmd)
 	frame.flags = 0;
 	frame.dlc = 8;
 
-	int err = 0;
-
 	switch (cmd) {
 	case ENABLE_MOTOR:
 		memcpy(frame.data, enable_frame, 8);
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-enable");
 		data->enable = true;
 		break;
 	case DISABLE_MOTOR:
 		memcpy(frame.data, disable_frame, 8);
-		can_send_queued(cfg->common.phy, &frame);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-disable");
 		data->enable = false;
 		break;
 	case SET_ZERO:
 		memcpy(frame.data, set_zero_frame, 8);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-set-zero");
 		break;
 	case CLEAR_PID:
 		memset(&data->params, 0, sizeof(data->params));
 		break;
 	case CLEAR_ERROR:
 		memcpy(frame.data, clear_error_frame, 8);
+		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-clear-error");
 		break;
-	}
-	if (err != 0) {
-		LOG_ERR("Failed to send CAN frame: %d", err);
+	default:
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
+		break;
 	}
 }
 
@@ -194,6 +195,7 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 	const struct device *dev = user_data;
 	struct dm_motor_data *data = dev->data;
 
+	motor_can_sched_report_rx(can_dev, frame);
 	data->prev_recv_time = k_uptime_get();
 
 	data->err = frame->data[0] >> 4;
@@ -203,9 +205,6 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 	data->RAWtorque = (frame->data[4] & 0xF) << 8;
 	data->update = true;
 
-	if (data->enable && !data->online) {
-		// LOG_ERR("motor %s is back online", dev->name);
-	}
 	data->online = true;
 
 	k_work_submit_to_queue(&dm_work_queue, &dm_rx_data_handle);
@@ -226,7 +225,7 @@ static void dm_edit_reg_value(const struct device *dev, uint16_t can_id, uint8_t
 	frame.data[5] = reg_value >> 8;
 	frame.data[6] = reg_value >> 16;
 	frame.data[7] = reg_value >> 24;
-	can_send_queued(dev, &frame);
+	motor_can_sched_send_prio(dev, &frame, true, "dm-reg");
 }
 
 void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
@@ -280,7 +279,7 @@ void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		}
 	}
 	if (!found) {
-		LOG_ERR("Mode %s not found", mode_str);
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 		if (mode != VO && mode != HYBRID) {
 			dm_control(dev, DISABLE_MOTOR);
 			data->enable = false;
@@ -289,20 +288,19 @@ void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		union {
 			float f;
 			uint32_t u;
-		} conv;
+	} conv;
 		conv.f = data->params.k_p;
 		dm_edit_reg_value(cfg->common.phy, cfg->common.tx_id, 0x19, conv.u);
 		conv.f = data->params.k_i;
 		dm_edit_reg_value(cfg->common.phy, cfg->common.tx_id, 0x1A, conv.u);
 	} else if (mode == PV) {
-		LOG_ERR("PV mode params setting not supported");
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 	}
 }
 
 int dm_set(const struct device *dev, motor_status_t *status)
 {
 	struct dm_motor_data *data = dev->data;
-	const struct dm_motor_config *cfg = dev->config;
 
 	if (status->mode == MIT) {
 		data->target_angle = status->angle/(RAD2DEG);
@@ -322,11 +320,6 @@ int dm_set(const struct device *dev, motor_status_t *status)
 	} else {
 		return -ENOSYS;
 	}
-
-	struct can_frame tx_frame;
-	dm_motor_pack(dev, &tx_frame);
-	can_send_queued(cfg->common.phy, &tx_frame);
-	data->last_tx_time = k_uptime_get();
 
 	return 0;
 }
@@ -388,14 +381,14 @@ void dm_tx_data_handler(struct k_work *work)
 		}
 		if (now - data->last_tx_time >= 1000 / cfg->freq) {
 			dm_motor_pack(motor_devices[i], &tx_frame);
-			can_send_queued(cfg->common.phy, &tx_frame);
+			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
+						   cfg->common.rx_id & 0xFF,
+						   CAN_STD_ID_MASK, 5U, "dm-control");
 			data->last_tx_time = now;
 			data->tx_cnt++;
 		}
 		if (now - data->prev_recv_time > 10000 / cfg->freq && data->online &&
 		    data->enable) {
-			// LOG_ERR("motor %s is not responding, setting it to offline",
-			// 	motor_devices[i]->name);
 			data->online = false;
 			data->enabled = false;
 		}
@@ -406,14 +399,13 @@ void dm_tx_data_handler(struct k_work *work)
 void dm_init_handler(struct k_work *work)
 {
 	k_timer_stop(&dm_tx_timer);
-	LOG_DBG("DM motor control thread started");
 
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 		struct dm_motor_data *data = motor_devices[i]->data;
 		const struct dm_motor_config *cfg =
 			(const struct dm_motor_config *)(motor_devices[i]->config);
 
-		reg_can_dev(cfg->common.phy);
+		motor_can_sched_register_can(cfg->common.phy);
 
 		data->filter.id = cfg->common.rx_id & 0xFF;
 		data->filter.mask = 0x7FF;
@@ -421,7 +413,7 @@ void dm_init_handler(struct k_work *work)
 		int err = can_add_rx_filter(cfg->common.phy, dm_rx_handler,
 					    (void *)motor_devices[i], &data->filter);
 		if (err < 0) {
-			LOG_ERR("Error adding CAN filter (err %d)", err);
+			motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 		}
 	}
 
