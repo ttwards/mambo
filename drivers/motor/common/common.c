@@ -68,10 +68,14 @@ int can_send_queued(const struct device *can_dev, struct can_frame *frame)
 		return -ENOSYS;
 	}
 
-	int err = k_sem_take(&tx_queue_sem[get_can_id(can_dev)], K_NO_WAIT);
+	int8_t can_id = get_can_id(can_dev);
+	if (can_id < 0) {
+		return -ENODEV;
+	}
+
+	int err = k_sem_take(&tx_queue_sem[can_id], K_NO_WAIT);
 	if (err == 0) {
-		err = can_send(can_dev, frame, K_NO_WAIT, can_tx_callback,
-			       &tx_queue_sem[get_can_id(can_dev)]);
+		err = can_send(can_dev, frame, K_NO_WAIT, can_tx_callback, &tx_queue_sem[can_id]);
 		// LOG_ERR("Send CAN frame: %d", err);
 		if (err) {
 			// LOG_ERR("TX queue full, will be put into msgq: %d", err);
@@ -80,7 +84,7 @@ int can_send_queued(const struct device *can_dev, struct can_frame *frame)
 		// LOG_ERR("CAN hardware TX queue is full. (err %d)", err);
 		struct tx_frame q_frame = {
 			.can_dev = can_dev,
-			.sem = &tx_queue_sem[get_can_id(can_dev)],
+			.sem = &tx_queue_sem[can_id],
 			.frame = *frame,
 		};
 		err = k_msgq_put(&can_tx_msgq, &q_frame, K_NO_WAIT);
