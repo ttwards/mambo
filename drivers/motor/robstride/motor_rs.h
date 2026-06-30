@@ -147,7 +147,7 @@ struct k_work_q rs_work_queue;
 int rs_set(const struct device *dev, motor_status_t *status);
 int rs_get(const struct device *dev, motor_status_t *status);
 void rs_motor_control(const struct device *dev, enum motor_cmd cmd);
-int rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
+void rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
 
 void rs_tx_isr_handler(struct k_timer *dummy);
 void rs_tx_data_handler(struct k_work *work);

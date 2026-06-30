@@ -237,6 +237,10 @@ int vesc_set(const struct device *dev, motor_status_t *status)
 		vesc_motor_set_mode(dev, status->mode);
 	}
 
+	if (!data->enable) {
+		return 0;
+	}
+
 	struct can_frame frame = {0};
 	vesc_motor_pack(dev, &frame);
 	can_send_queued(cfg->common.phy, &frame);
