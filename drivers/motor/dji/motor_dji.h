@@ -61,6 +61,7 @@ struct dji_motor_data {
 
 	// Control status
 	bool online;
+	bool enabled;
 	uint8_t convert_num;
 	int8_t current_mode_index;
 

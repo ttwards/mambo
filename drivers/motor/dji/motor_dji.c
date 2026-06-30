@@ -201,13 +201,13 @@ int dji_set_mode(const struct device *dev, enum motor_mode mode)
 		return -ENOSYS;
 	}
 
-	data->current_mode_index = -1;
+	int8_t mode_index = -1;
 
 	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.pid_datas); i++) {
 		if ((cfg->common.pid_datas[i] == NULL ||
 		     cfg->common.pid_datas[i]->pid_dev == NULL) &&
 		    mode == ML_TORQUE) {
-			data->current_mode_index = i;
+			mode_index = i;
 			break;
 		}
 		if (cfg->common.pid_datas[i] == NULL) {
@@ -215,16 +215,17 @@ int dji_set_mode(const struct device *dev, enum motor_mode mode)
 		}
 		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
 			pid_calc(cfg->common.pid_datas[i]);
-			data->current_mode_index = i;
+			mode_index = i;
 			break;
 		}
 	}
 
-	if (data->current_mode_index == -1) {
+	if (mode_index == -1) {
 		LOG_ERR("No motor mode found for %s", mode_str);
 		return -ENOSYS;
 	}
 
+	data->current_mode_index = mode_index;
 	data->common.mode = mode;
 
 	return 0;
@@ -272,10 +273,10 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 
 	switch (cmd) {
 	case ENABLE_MOTOR:
-		data->online = true;
+		data->enabled = true;
 		break;
 	case DISABLE_MOTOR:
-		data->online = false;
+		data->enabled = false;
 		break;
 	case SET_ZERO:
 		data->angle_add = 0;
@@ -295,7 +296,6 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 		break;
 	case CLEAR_ERROR:
 		data->missed_times = 0;
-		data->online = true;
 		if (cfg->is_dm_motor) {
 			frame.id = 0x7FF;
 			frame.flags = 0;
@@ -314,18 +314,20 @@ int dji_get(const struct device *dev, motor_status_t *status)
 {
 	struct dji_motor_data *data = dev->data;
 	const struct dji_motor_config *cfg = dev->config;
-
-	if (strcmp(cfg->common.capabilities[data->current_mode_index], "torque") == 0) {
-		status->mode = ML_TORQUE;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "angle") == 0) {
-		status->mode = ML_ANGLE;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "speed") == 0) {
-		status->mode = ML_SPEED;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "mit") == 0) {
-		status->mode = MIT;
-	}
+	int8_t mode_index = data->current_mode_index;
 
 	memcpy(status, &data->common, sizeof(motor_status_t));
+	if (mode_index >= 0 && mode_index < SIZE_OF_ARRAY(cfg->common.capabilities)) {
+		if (strcmp(cfg->common.capabilities[mode_index], "torque") == 0) {
+			status->mode = ML_TORQUE;
+		} else if (strcmp(cfg->common.capabilities[mode_index], "angle") == 0) {
+			status->mode = ML_ANGLE;
+		} else if (strcmp(cfg->common.capabilities[mode_index], "speed") == 0) {
+			status->mode = ML_SPEED;
+		} else if (strcmp(cfg->common.capabilities[mode_index], "mit") == 0) {
+			status->mode = MIT;
+		}
+	}
 
 	return 0;
 }
@@ -360,7 +362,6 @@ int dji_init(const struct device *dev)
 
 		data->ctrl_struct->full_handle.handler = dji_tx_handler;
 
-		data->online = true;
 		data->pid_count = SIZE_OF_ARRAY(cfg->common.pid_datas);
 		data->current_mode_index = data->pid_count;
 		for (int i = 0;
@@ -486,6 +487,7 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 	data->RAWrpm = COMBINE_HL8(rx_frame.data[2], rx_frame.data[3]);
 	data->RAWcurrent = COMBINE_HL8(rx_frame.data[4], rx_frame.data[5]);
 	data->RAWtemp = rx_frame.data[6];
+	data->online = true;
 	data->ctrl_struct->flags |= 1 << id;
 	data->prev_time = (data->curr_time == 0) ? (curr_time - 1) : data->curr_time;
 	data->curr_time = curr_time;
@@ -749,7 +751,13 @@ void dji_tx_handler(struct k_work *work)
 				}
 				const struct device *dev = ctrl_struct->motor_devs[id_temp];
 				struct dji_motor_data *data = dev->data;
-				if (id_temp < 8 && data->online) {
+				if (id_temp < 8) {
+					if (!data->enabled || !data->online) {
+						txframe.data[j * 2] = 0;
+						txframe.data[j * 2 + 1] = 0;
+						packed = true;
+						continue;
+					}
 					if (!data->calculated) {
 						motor_calc(ctrl_struct->motor_devs[id_temp]);
 						data->calculated = true;

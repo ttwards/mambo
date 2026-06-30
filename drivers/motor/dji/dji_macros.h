@@ -64,6 +64,7 @@
 		.canbus_id = 0,                                                                    \
 		.ctrl_struct = NULL,                                                               \
 		.online = false,                                                                   \
+		.enabled = false,                                                                  \
 		.convert_num = 0,                                                                  \
 		.current_mode_index = -1,                                                          \
 		.RAWangle = 0,                                                                     \
