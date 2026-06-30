@@ -6,6 +6,7 @@ config USB_BULK_INTERFACE
 	help
 	  Enable USB_BULK_INTERFACE
 	select ARES_COMM_LIB
+	select NET_BUF
 	select USB_DEVICE_STACK_NEXT
 	select UDC_WORKQUEUE
 

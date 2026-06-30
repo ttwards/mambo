@@ -245,12 +245,16 @@ static void ares_if_enable(struct usbd_class_data *const c_data)
 static void ares_if_disable(struct usbd_class_data *const c_data)
 {
 	struct ares_if_data *data = usbd_class_get_private(c_data);
+	struct net_buf *buf;
+
 	LOG_INF("Disable ARES Bulk interface");
 	atomic_clear_bit(&data->state, ARES_IF_FUNCTION_ENABLED);
 	atomic_clear_bit(&data->state, ARES_IF_FUNCTION_IN_ENGAGED);
 	atomic_clear_bit(&data->state, ARES_IF_FUNCTION_OUT_ENGAGED);
-	/* Additionally, we should purge the queue to release any pending buffers */
-	k_msgq_purge(&incoming_data_msgq);
+
+	while (k_msgq_get(&incoming_data_msgq, &buf, K_NO_WAIT) == 0) {
+		net_buf_unref(buf);
+	}
 }
 
 static int ares_if_init(struct usbd_class_data *c_data)
@@ -288,7 +292,8 @@ static void ares_processing_thread_entry(void *p1, void *p2, void *p3)
 
 		LOG_DBG("Processing thread got buffer %p with len %u", buf, buf->len);
 
-		if (ares_interface->protocol->api->handle) {
+		if (ares_interface && ares_interface->protocol && ares_interface->protocol->api &&
+		    ares_interface->protocol->api->handle) {
 			ares_interface->protocol->api->handle(ares_interface->protocol, buf);
 		}
 		// k_busy_wait(3);
@@ -325,9 +330,15 @@ UDC_BUF_POOL_DEFINE(tx_pool, 8, 512, sizeof(struct ares_udc_buf_info), buf_cb_un
 int ares_usbd_write(struct AresInterface *interface, struct net_buf *buf)
 {
 	struct usbd_class_data *c_data = ares_if_class_data;
-	struct ares_if_data *data = usbd_class_get_private(c_data);
+	struct ares_if_data *data = NULL;
 	int err;
 
+	if (c_data == NULL) {
+		err = -ENODEV;
+		goto clear_exit;
+	}
+
+	data = usbd_class_get_private(c_data);
 	if (data == NULL) {
 		err = -EINVAL;
 		goto clear_exit;
@@ -363,9 +374,15 @@ int ares_usbd_write_with_lock(struct AresInterface *interface, struct net_buf *b
 			      struct k_mutex *mutex)
 {
 	struct usbd_class_data *c_data = ares_if_class_data;
-	struct ares_if_data *data = usbd_class_get_private(c_data);
+	struct ares_if_data *data = NULL;
 	int err;
 
+	if (c_data == NULL) {
+		err = -ENODEV;
+		goto clear_exit;
+	}
+
+	data = usbd_class_get_private(c_data);
 	if (data == NULL) {
 		err = -EINVAL;
 		goto clear_exit;
@@ -422,31 +439,29 @@ struct net_buf *ares_interface_alloc_buf_with_data(struct AresInterface *interfa
 	return buf;
 }
 
+static void ares_usbd_protocol_event(enum AresProtocolEvent event)
+{
+	if (ares_interface && ares_interface->protocol && ares_interface->protocol->api &&
+	    ares_interface->protocol->api->event) {
+		ares_interface->protocol->api->event(ares_interface->protocol, event);
+	}
+}
+
 // Corrected message callback, same as in sample_usbd.c
 static void ares_usbd_msg_cb(struct usbd_context *const usbd_ctx, const struct usbd_msg *const msg)
 {
 	switch (msg->type) {
 	case USBD_STATE_CONFIGURED:
 		// LOG_INF("USB device configured");
-
-		if (ares_interface->protocol->api->event && ares_interface->protocol) {
-			ares_interface->protocol->api->event(ares_interface->protocol,
-							     ARES_PROTOCOL_EVENT_DISCONNECTED);
-		}
+		ares_usbd_protocol_event(ARES_PROTOCOL_EVENT_CONNECTED);
 		break;
 	case USBD_MSG_RESET:
 		// LOG_INF("USB device reset");
-		if (ares_interface->protocol->api->event && ares_interface->protocol) {
-			ares_interface->protocol->api->event(ares_interface->protocol,
-							     ARES_PROTOCOL_EVENT_CONNECTED);
-		}
+		ares_usbd_protocol_event(ARES_PROTOCOL_EVENT_DISCONNECTED);
 		break;
 	case USBD_MSG_SUSPEND:
 		LOG_INF("USB device suspended");
-		if (ares_interface->protocol->api->event && ares_interface->protocol) {
-			ares_interface->protocol->api->event(ares_interface->protocol,
-							     ARES_PROTOCOL_EVENT_DISCONNECTED);
-		}
+		ares_usbd_protocol_event(ARES_PROTOCOL_EVENT_DISCONNECTED);
 		break;
 	default:
 		break;
@@ -489,7 +504,7 @@ int ares_usbd_init(struct AresInterface *interface)
 		return err;
 	}
 
-	if (IS_ENABLED(USBD_SUPPORTS_HIGH_SPEED)) {
+	if (USBD_SUPPORTS_HIGH_SPEED && usbd_caps_speed(&ares_usbd) == USBD_SPEED_HS) {
 		err = usbd_add_configuration(&ares_usbd, USBD_SPEED_HS, &ares_hs_config);
 		if (err) {
 			LOG_ERR("Failed to add HS config");
