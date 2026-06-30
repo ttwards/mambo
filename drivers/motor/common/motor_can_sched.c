@@ -62,22 +62,6 @@ static bool sched_initialized;
 static uint32_t sched_tick;
 static uint32_t sched_trace_id;
 
-static const char *prio_name(enum motor_can_sched_prio prio)
-{
-	switch (prio) {
-	case MOTOR_CAN_SCHED_PRIO_CRITICAL:
-		return "critical";
-	case MOTOR_CAN_SCHED_PRIO_HIGH:
-		return "high";
-	case MOTOR_CAN_SCHED_PRIO_NORMAL:
-		return "normal";
-	case MOTOR_CAN_SCHED_PRIO_LOW:
-		return "low";
-	default:
-		return "unknown";
-	}
-}
-
 static uint16_t frame_time_us(uint8_t flags)
 {
 	return (flags & CAN_FRAME_IDE) ? 150U : 130U;
@@ -140,8 +124,7 @@ static bool time_reached(uint32_t now, uint32_t deadline)
 	return (int32_t)(now - deadline) >= 0;
 }
 
-static uint16_t frame_cost_us(const struct can_frame *frame,
-			      const struct motor_can_sched_meta *meta)
+static uint16_t frame_cost_us(const struct can_frame *frame, const struct motor_can_sched_meta *meta)
 {
 	uint16_t cost = frame_time_us(frame->flags);
 
@@ -234,21 +217,10 @@ static int queue_entry_locked(const struct device *can_dev, const struct can_fra
 	ring = &bus->rings[meta->priority];
 	if (!ring_push(ring, &entry)) {
 		bus->stats.dropped_frames++;
-		if (meta->trace_lifecycle) {
-			LOG_WRN("%s queue full drop seq=%u tag=%s prio=%s id=0x%03x", can_dev->name,
-				entry.trace_id, meta->tag != NULL ? meta->tag : "frame",
-				prio_name(meta->priority), frame->id);
-		}
 		return -ENOSPC;
 	}
 
-	bus->stats.queue_peak[meta->priority] =
-		MAX(bus->stats.queue_peak[meta->priority], ring->count);
-	if (meta->trace_lifecycle) {
-		LOG_INF("%s queue seq=%u tag=%s prio=%s id=0x%03x reply=0x%03x q=%u retry=%u",
-			can_dev->name, entry.trace_id, meta->tag != NULL ? meta->tag : "frame",
-			prio_name(meta->priority), frame->id, meta->reply_id, ring->count, retries);
-	}
+	bus->stats.queue_peak[meta->priority] = MAX(bus->stats.queue_peak[meta->priority], ring->count);
 	return 0;
 }
 
@@ -264,24 +236,11 @@ static int requeue_entry_locked(struct motor_can_sched_bus *bus,
 	ring = &bus->rings[entry->meta.priority];
 	if (!ring_push(ring, entry)) {
 		bus->stats.dropped_frames++;
-		if (entry->meta.trace_lifecycle) {
-			LOG_WRN("%s queue full drop seq=%u tag=%s prio=%s id=0x%03x",
-				bus->can_dev->name, entry->trace_id,
-				entry->meta.tag != NULL ? entry->meta.tag : "frame",
-				prio_name(entry->meta.priority), entry->frame.id);
-		}
 		return -ENOSPC;
 	}
 
 	bus->stats.queue_peak[entry->meta.priority] =
 		MAX(bus->stats.queue_peak[entry->meta.priority], ring->count);
-	if (entry->meta.trace_lifecycle) {
-		LOG_INF("%s queue seq=%u tag=%s prio=%s id=0x%03x reply=0x%03x q=%u retry=%u",
-			bus->can_dev->name, entry->trace_id,
-			entry->meta.tag != NULL ? entry->meta.tag : "frame",
-			prio_name(entry->meta.priority), entry->frame.id, entry->meta.reply_id,
-			ring->count, entry->retries);
-	}
 
 	return 0;
 }
@@ -327,9 +286,8 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 
 	if (ret != 0) {
 		bus->stats.dropped_frames++;
+		bus->stats.pending_full++;
 		k_spin_unlock(&sched_lock, key);
-		LOG_WRN("pending table full on %s, drop %s", bus->can_dev->name,
-			entry->meta.tag != NULL ? entry->meta.tag : "frame");
 		return ret;
 	}
 	k_spin_unlock(&sched_lock, key);
@@ -338,14 +296,9 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 	if (ret != 0) {
 		key = k_spin_lock(&sched_lock);
 		clear_pending_locked(pending);
+		bus->stats.tx_busy++;
 		requeue_entry_locked(bus, entry);
 		k_spin_unlock(&sched_lock, key);
-		if (entry->meta.trace_lifecycle) {
-			LOG_WRN("%s tx busy requeue seq=%u tag=%s id=0x%03x err=%d",
-				bus->can_dev->name, entry->trace_id,
-				entry->meta.tag != NULL ? entry->meta.tag : "frame",
-				entry->frame.id, ret);
-		}
 		return ret;
 	}
 
@@ -364,14 +317,6 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
 	}
 	k_spin_unlock(&sched_lock, key);
-
-	if (entry->meta.trace_lifecycle) {
-		LOG_INF("%s tx seq=%u tag=%s id=0x%03x expect_reply=%u retry=%u reserve=%uus",
-			bus->can_dev->name, entry->trace_id,
-			entry->meta.tag != NULL ? entry->meta.tag : "frame", entry->frame.id,
-			entry->meta.expect_reply ? 1U : 0U, entry->retries,
-			entry->meta.reply_reserve_us);
-	}
 
 	k_busy_wait(frame_time_us(entry->frame.flags));
 	if (entry->meta.reply_reserve_us != 0U) {
@@ -402,15 +347,6 @@ static void check_timeouts_locked(void)
 			}
 
 			bus->stats.ack_timeouts++;
-			if (pending->entry.meta.trace_lifecycle) {
-				LOG_WRN("%s ack timeout seq=%u tag=%s tx=0x%03x expect=0x%03x "
-					"retry=%u/%u",
-					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
-									: "frame",
-					pending->entry.frame.id, pending->reply_id,
-					pending->entry.retries, pending->entry.meta.max_retries);
-			}
 			if (pending->entry.retries < pending->entry.meta.max_retries) {
 				struct motor_can_sched_entry retry_entry = pending->entry;
 
@@ -418,12 +354,8 @@ static void check_timeouts_locked(void)
 				retry_entry.meta.priority = MOTOR_CAN_SCHED_PRIO_HIGH;
 				requeue_entry_locked(bus, &retry_entry);
 				bus->stats.retry_frames++;
-			} else if (pending->entry.meta.trace_lifecycle) {
-				LOG_ERR("%s give up seq=%u tag=%s tx=0x%03x expect=0x%03x",
-					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
-									: "frame",
-					pending->entry.frame.id, pending->reply_id);
+			} else {
+				bus->stats.giveups++;
 			}
 
 			memset(pending, 0, sizeof(*pending));
@@ -448,39 +380,15 @@ static void release_periodic_locked(void)
 	}
 }
 
-static void log_window_if_needed(struct motor_can_sched_bus *bus)
+static void reset_window_if_needed(struct motor_can_sched_bus *bus)
 {
 	uint32_t now = k_uptime_get_32();
-	uint32_t elapsed;
 
 	if ((bus->last_log_ms != 0U) && (now - bus->last_log_ms < MOTOR_CAN_SCHED_LOG_WINDOW_MS)) {
 		return;
 	}
 
-	elapsed =
-		(bus->last_log_ms == 0U) ? MOTOR_CAN_SCHED_LOG_WINDOW_MS : (now - bus->last_log_ms);
 	bus->last_log_ms = now;
-
-	if (elapsed == 0U) {
-		elapsed = MOTOR_CAN_SCHED_LOG_WINDOW_MS;
-	}
-
-	LOG_INF("%s util tx=%u rx=%u reserve=%u load=%u.%02u%% tx=%u rx=%u ack=%u retry=%u "
-		"timeout=%u drop=%u",
-		bus->can_dev->name, bus->stats.window_tx_busy_us, bus->stats.window_rx_busy_us,
-		bus->stats.window_reserved_us,
-		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us +
-					   bus->stats.window_rx_busy_us) *
-				100U) /
-			       elapsed / 1000U),
-		(unsigned int)(((uint64_t)(bus->stats.window_tx_busy_us +
-					   bus->stats.window_rx_busy_us) *
-				10000U) /
-			       elapsed / 1000U) %
-			100U,
-		bus->stats.tx_frames, bus->stats.rx_frames, bus->stats.ack_matches,
-		bus->stats.retry_frames, bus->stats.ack_timeouts, bus->stats.dropped_frames);
-
 	bus->stats.window_tx_busy_us = 0U;
 	bus->stats.window_rx_busy_us = 0U;
 	bus->stats.window_reserved_us = 0U;
@@ -546,7 +454,7 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 			}
 
 			key = k_spin_lock(&sched_lock);
-			log_window_if_needed(bus);
+			reset_window_if_needed(bus);
 			k_spin_unlock(&sched_lock, key);
 		}
 
@@ -573,8 +481,7 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 		uint32_t peak = 0U;
 		uint32_t total = 0U;
 
-		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME;
-		     slot += period_ticks) {
+		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME; slot += period_ticks) {
 			uint32_t loaded = bus->phase_load[slot] + cost;
 
 			total += loaded;
@@ -633,7 +540,6 @@ int motor_can_sched_register_can(const struct device *can_dev)
 			return ret;
 		}
 		bus->started = true;
-		LOG_INF("scheduler attached %s", can_dev->name);
 	}
 
 	return 0;
@@ -696,12 +602,6 @@ static int motor_can_sched_add_periodic(struct motor_can_sched_periodic *job)
 			job->phase_tick = choose_phase_locked(bus, job);
 			job->next_release_tick = sched_tick + job->phase_tick;
 			job->enabled = true;
-			LOG_INF("%s periodic add tag=%s rate=%uHz phase=%u period=%u "
-				"expect_reply=%u",
-				job->can_dev->name,
-				job->meta.tag != NULL ? job->meta.tag : "periodic", job->rate_hz,
-				job->phase_tick, job->period_ticks,
-				job->meta.expect_reply ? 1U : 0U);
 			k_spin_unlock(&sched_lock, key);
 			return 0;
 		}
@@ -773,20 +673,11 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 		if (!pending->used) {
 			continue;
 		}
-		if ((frame->id & pending->reply_mask) ==
-		    (pending->reply_id & pending->reply_mask)) {
+		if ((frame->id & pending->reply_mask) == (pending->reply_id & pending->reply_mask)) {
 			uint32_t rtt_ms = k_uptime_get_32() - pending->sent_at_ms;
 
 			bus->stats.ack_matches++;
-			if (pending->entry.meta.trace_lifecycle) {
-				LOG_INF("%s ack ok seq=%u tag=%s tx=0x%03x rx=0x%03x rtt=%ums "
-					"retry=%u",
-					bus->can_dev->name, pending->entry.trace_id,
-					pending->entry.meta.tag != NULL ? pending->entry.meta.tag
-									: "frame",
-					pending->entry.frame.id, frame->id, rtt_ms,
-					pending->entry.retries);
-			}
+			ARG_UNUSED(rtt_ms);
 			memset(pending, 0, sizeof(*pending));
 			break;
 		}
@@ -867,6 +758,35 @@ int motor_can_sched_send(const struct device *can_dev, const struct can_frame *f
 
 	*handle_out = handle;
 	return 0;
+}
+
+int motor_can_sched_send_prio(const struct device *can_dev, const struct can_frame *frame,
+			      bool high_priority, const char *tag)
+{
+	const struct motor_can_sched_tx_param param = {
+		.high_priority = high_priority,
+		.tag = tag,
+	};
+
+	return motor_can_sched_send(can_dev, frame, &param, NULL);
+}
+
+int motor_can_sched_send_reply(const struct device *can_dev, const struct can_frame *frame,
+			       uint32_t reply_id, uint32_t reply_mask, uint16_t timeout_ms,
+			       const char *tag)
+{
+	const struct motor_can_sched_tx_param param = {
+		.track_reply = true,
+		.high_priority = true,
+		.immediate_reply = true,
+		.ack_timeout_ms = timeout_ms,
+		.max_retries = 1U,
+		.reply_id = reply_id,
+		.reply_mask = reply_mask,
+		.tag = tag,
+	};
+
+	return motor_can_sched_send(can_dev, frame, &param, NULL);
 }
 
 int motor_can_sched_update(motor_can_sched_handle_t handle, const struct can_frame *frame)

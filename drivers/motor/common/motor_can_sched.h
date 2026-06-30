@@ -66,6 +66,9 @@ struct motor_can_sched_stats {
 	uint32_t dropped_frames;
 	uint32_t retry_frames;
 	uint32_t ack_timeouts;
+	uint32_t pending_full;
+	uint32_t tx_busy;
+	uint32_t giveups;
 	uint32_t queue_peak[MOTOR_CAN_SCHED_PRIO_COUNT];
 	uint32_t window_tx_busy_us;
 	uint32_t window_rx_busy_us;
@@ -95,6 +98,11 @@ int motor_can_sched_register_can(const struct device *can_dev);
 int motor_can_sched_send(const struct device *can_dev, const struct can_frame *frame,
 			 const struct motor_can_sched_tx_param *param,
 			 motor_can_sched_handle_t *handle_out);
+int motor_can_sched_send_prio(const struct device *can_dev, const struct can_frame *frame,
+			      bool high_priority, const char *tag);
+int motor_can_sched_send_reply(const struct device *can_dev, const struct can_frame *frame,
+			       uint32_t reply_id, uint32_t reply_mask, uint16_t timeout_ms,
+			       const char *tag);
 int motor_can_sched_update(motor_can_sched_handle_t handle, const struct can_frame *frame);
 int motor_can_sched_remove(motor_can_sched_handle_t handle);
 void motor_can_sched_report_rx(const struct device *can_dev, const struct can_frame *frame);
