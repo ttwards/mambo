@@ -76,6 +76,7 @@ void lk_motor_control(const struct device *dev, enum motor_cmd cmd)
 		k_msleep(10);
 		data->online = true;
 		data->enabled = true;
+		k_work_submit_to_queue(&lk_work_queue, &lk_txpid_data_handle);
 		break;
 	case DISABLE_MOTOR:
 		frame.data[0] = LK_CMD_MOTOR_OFF; // 0x80
@@ -280,7 +281,9 @@ static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 
 	struct lk_motor_data *data = (struct lk_motor_data *)(motor_devices[idx]->data);
 	const struct lk_motor_cfg *cfg = (const struct lk_motor_cfg *)(motor_devices[idx]->config);
-	data->missed_times--;
+	if (data->missed_times > 0) {
+		data->missed_times--;
+	}
 	if (!data->online) {
 		data->missed_times = 0;
 		data->online = true;
@@ -367,6 +370,9 @@ void lk_txpid_data_handler(struct k_work *work)
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 		struct lk_motor_data *data = motor_devices[i]->data;
 		const struct lk_motor_cfg *cfg = motor_devices[i]->config;
+		if (!data->enabled) {
+			continue;
+		}
 		if (data->pidupdate[0] || data->pidupdate[1] || data->pidupdate[2]) {
 			tx_frame.id = LK_CMD_ID_BASE + cfg->id; // 0x160 + ID
 			tx_frame.dlc = 8;
@@ -396,7 +402,7 @@ void lk_txpid_data_handler(struct k_work *work)
 			if (data->pidupdate[1]) {
 				tx_frame.data[0] = LK_SET_PARAM;
 				tx_frame.data[1] = LK_PID_SPEED_UPDATE;
-				data->pidupdate[0] = false;
+				data->pidupdate[1] = false;
 
 				// Kp
 				int16_t kp_val = (int16_t)(data->params[1].k_p);
@@ -416,7 +422,7 @@ void lk_txpid_data_handler(struct k_work *work)
 			if (data->pidupdate[2]) {
 				tx_frame.data[0] = LK_SET_PARAM;
 				tx_frame.data[1] = LK_PID_TORQUE_UPDATE;
-				data->pidupdate[0] = false;
+				data->pidupdate[2] = false;
 
 				// Kp
 				int16_t kp_val = (int16_t)(data->params[2].k_p);
@@ -441,14 +447,15 @@ void lk_init_handler(struct k_work *work)
 	// LOG_DBG("lk_init_handler");
 
 	for (int i = 0; i < MOTOR_COUNT; i++) {
-
 		const struct lk_motor_cfg *cfg =
 			(const struct lk_motor_cfg *)(motor_devices[i]->config);
 		struct lk_motor_data *data = motor_devices[i]->data;
+
 		reg_can_dev(cfg->common.phy);
 		data->pidupdate[0] = true;
 		data->pidupdate[1] = true;
 		data->pidupdate[2] = true;
+
 		// 注册 CAN 滤波器
 		// 接收 ID = 0x180 + ID
 		filters[i].flags = 0; // 标准帧
@@ -461,13 +468,13 @@ void lk_init_handler(struct k_work *work)
 		if (err < 0) {
 			LOG_ERR("Error adding CAN filter (err %d)", err);
 		}
-		for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
 
-			if (cfg->common.pid_datas[i]->pid_dev == NULL) {
+		for (int j = 0; j < SIZE_OF_ARRAY(cfg->common.capabilities); j++) {
+			if (cfg->common.pid_datas[j]->pid_dev == NULL) {
 				break;
 			}
 
-			const char *cap_name = cfg->common.capabilities[i];
+			const char *cap_name = cfg->common.capabilities[j];
 			int pid_idx = -1;
 
 			// 0->Angle, 1->Speed, 2->Torque
@@ -483,7 +490,7 @@ void lk_init_handler(struct k_work *work)
 
 			if (pid_idx != -1) {
 				struct pid_config params;
-				pid_get_params(cfg->common.pid_datas[i], &params);
+				pid_get_params(cfg->common.pid_datas[j], &params);
 
 				if (data->params[pid_idx].k_p != params.k_p ||
 				    data->params[pid_idx].k_d != params.k_d) {
@@ -495,11 +502,10 @@ void lk_init_handler(struct k_work *work)
 				}
 			}
 		}
-		lk_motor_control(motor_devices[i], ENABLE_MOTOR);
-		k_sleep(K_USEC(120));
+
 		// lk_motor_control(motor_devices[i], SET_ZERO);
 	}
-	k_work_submit_to_queue(&lk_work_queue, &lk_txpid_data_handle);
+
 	lk_tx_timer.expiry_fn = lk_tx_isr_handler;
 	k_timer_start(&lk_tx_timer, K_MSEC(600), K_MSEC(4));
 	k_timer_user_data_set(&lk_tx_timer, &lk_tx_data_handle);
