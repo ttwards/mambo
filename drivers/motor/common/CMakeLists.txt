@@ -3,3 +3,4 @@
 
 zephyr_library()
 zephyr_library_sources_ifdef(CONFIG_MOTOR_COMMON common.c)
+zephyr_library_sources_ifdef(CONFIG_MOTOR_COMMON motor_can_sched.c)
