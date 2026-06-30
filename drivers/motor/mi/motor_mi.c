@@ -18,6 +18,8 @@ LOG_MODULE_REGISTER(motor_mi, CONFIG_MOTOR_LOG_LEVEL);
 
 struct k_sem tx_frame_sem;
 
+static int mi_motor_apply_mode(const struct device *dev, enum motor_mode mode, bool send);
+
 static float uint16_to_float(uint16_t x, float x_min, float x_max, int bits)
 {
 	uint32_t span = (1 << bits) - 1;
@@ -72,9 +74,12 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 	switch (cmd) {
 	case ENABLE_MOTOR:
 
+		if (mi_motor_apply_mode(dev, data->common.mode, true) < 0) {
+			LOG_ERR("Failed to set motor mode before enabling");
+			return;
+		}
 		mi_can_id->mi_msg_mode = Communication_Type_MotorEnable;
 		can_send_queued(cfg->common.phy, &frame);
-		data->online = true;
 		data->enabled = true;
 		break;
 	case DISABLE_MOTOR:
@@ -98,6 +103,7 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 	case CLEAR_ERROR:
 
 		break;
+	default:
 		LOG_ERR("Unsupport motor command: %d", cmd);
 		return;
 	}
@@ -188,14 +194,12 @@ static void mi_motor_pack(const struct device *dev, struct can_frame *frame)
 	}
 }
 
-int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
+static int mi_motor_apply_mode(const struct device *dev, enum motor_mode mode, bool send)
 {
 
 	struct mi_motor_data *data = dev->data;
 	const struct mi_motor_cfg *cfg = dev->config;
 	char mode_str[10] = {0};
-
-	data->common.mode = mode;
 
 	switch (mode) {
 	case MIT:
@@ -211,8 +215,9 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		break;
 	default:
 		LOG_DBG("Unknown motor mode: %d", mode);
-		break;
+		return -ENOSYS;
 	}
+	data->common.mode = mode;
 	struct can_frame frame = {0};
 	struct mi_can_id *mi_can_id = (struct mi_can_id *)&(frame.id);
 	mi_can_id->mi_msg_mode = Communication_Type_SetSingleParameter;
@@ -223,7 +228,9 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	memcpy(&frame.data[0], &index, 2);
 
 	frame.data[4] = (uint8_t)mode;
-	can_send_queued(cfg->common.phy, &frame);
+	if (send) {
+		can_send_queued(cfg->common.phy, &frame);
+	}
 
 	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
 		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
@@ -240,6 +247,13 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		}
 	}
 	return 0;
+}
+
+int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
+{
+	struct mi_motor_data *data = dev->data;
+
+	return mi_motor_apply_mode(dev, mode, data->enabled);
 }
 
 static int get_motor_id(struct can_frame *frame)
@@ -275,6 +289,7 @@ static void mi_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	struct mi_can_id *can_id = (struct mi_can_id *)&(frame->id);
 	if (can_id->mi_msg_mode == Communication_Type_MotorFeedback) {
 		data->err = ((can_id->data) >> 8) & 0x3f;
+		data->online = true;
 		if (data->err) {
 			LOG_ERR("id:%d err:%d", id, data->err);
 		}
@@ -340,21 +355,11 @@ void mi_tx_data_handler(struct k_work *work)
 		struct mi_motor_data *data = motor_devices[i]->data;
 		const struct mi_motor_cfg *cfg = motor_devices[i]->config;
 		if (data->enabled) {
-			int can_id = get_can_id(motor_devices[i]);
 			if (data->missed_times > 600) {
 				LOG_ERR("Motor %s is not responding, setting it to offline.",
 					motor_devices[i]->name);
 				data->missed_times = 0;
-				// struct can_frame frame = {0};
-				// frame.flags = CAN_FRAME_IDE;
-				// frame.dlc = 8;
-				// struct mi_can_id *mi_can_id = (struct mi_can_id *)&(frame.id);
-				// mi_can_id->id = cfg->common.id;
-				// mi_can_id->mi_msg_mode = Communication_Type_MotorEnable;
-				// can_send_queued(cfg->common.phy, &frame);
-				// data->online = true;
-				// data->enabled = true;
-				// data->missed_times = 0;
+				data->online = false;
 			}
 			mi_motor_pack(motor_devices[i], tx_frame);
 
@@ -390,13 +395,6 @@ void mi_init_handler(struct k_work *work)
 			LOG_ERR("Error adding CAN filter (err %d)", err);
 		}
 	}
-	k_sleep(K_MSEC(100));
-
-	for (int i = 0; i < MOTOR_COUNT; i++) {
-		mi_motor_control(motor_devices[i], SET_ZERO);
-		k_sleep(K_MSEC(1));
-	}
-
 	k_timer_start(&mi_tx_timer, K_NO_WAIT, K_MSEC(3));
 	k_timer_user_data_set(&mi_tx_timer, &mi_tx_data_handle);
 }
@@ -449,7 +447,6 @@ int mi_set(const struct device *dev, motor_status_t *status)
 				struct pid_config params;
 				pid_get_params(cfg->common.pid_datas[i], &params);
 
-				data->common.mode = status->mode;
 				data->params.k_p = params.k_p;
 				data->params.k_d = params.k_d;
 				break;
@@ -463,9 +460,8 @@ int mi_set(const struct device *dev, motor_status_t *status)
 			LOG_ERR("Failed to set motor mode");
 			return -EIO;
 		}
-	} else {
-		return 0; // No mode change, no need to set
 	}
+	return 0;
 }
 
 DT_INST_FOREACH_STATUS_OKAY(MIMOTOR_INST)
