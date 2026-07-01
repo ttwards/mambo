@@ -94,6 +94,8 @@ enum frame_type {
 #define SYNC_PACK_STATUS_WRITE BIT(1)
 #define SYNC_PACK_STATUS_DONE  BIT(2)
 
+#define DUAL_TX_IN_FLIGHT 0
+
 #define GET_8BITS(buf, n_byte)  (*(uint8_t *)(buf + n_byte))
 #define GET_16BITS(buf, n_byte) (*(uint16_t *)(buf + n_byte))
 #define GET_32BITS(buf, n_byte) (*(uint32_t *)(buf + n_byte))
@@ -116,7 +118,7 @@ struct sync_pack {
 	dual_trans_cb_t cb;
 	uint8_t *buf;
 
-	struct k_mutex mutex;
+	atomic_t tx_state;
 };
 
 struct id_mapping {
@@ -127,7 +129,7 @@ struct id_mapping {
 	uint32_t arg3;
 	uint16_t req_id;
 
-	struct k_mutex mutex;
+	atomic_t tx_state;
 	__aligned(4) uint8_t buf[REPL_FRAME_LENGTH + 2]; // +2 for potential CRC16
 };
 

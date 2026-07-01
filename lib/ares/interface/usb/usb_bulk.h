@@ -13,8 +13,10 @@ int ares_usbd_write(struct AresInterface *interface, struct net_buf *buf);
 struct net_buf *ares_interface_alloc_buf(struct AresInterface *interface);
 struct net_buf *ares_interface_alloc_buf_with_data(struct AresInterface *interface, void *data,
 						   size_t len);
-int ares_usbd_write_with_lock(struct AresInterface *interface, struct net_buf *buf,
-			      struct k_mutex *mutex);
+int ares_usbd_write_with_callback(struct AresInterface *interface, struct net_buf *buf,
+				  ares_interface_tx_done_cb_t cb, void *user_data);
+uint32_t ares_usbd_caps(struct AresInterface *interface);
+size_t ares_usbd_mtu(struct AresInterface *interface);
 
 struct AresBulkInterface {
 	struct AresInterface *interface;
@@ -32,7 +34,9 @@ struct AresBulkInterface {
 	struct AresInterfaceAPI ares_bulk_interface_api = {                                        \
 		.init = ares_usbd_init,                                                            \
 		.send = ares_usbd_write,                                                           \
-		.send_with_lock = ares_usbd_write_with_lock,                                       \
+		.send_with_callback = ares_usbd_write_with_callback,                               \
+		.caps = ares_usbd_caps,                                                            \
+		.mtu = ares_usbd_mtu,                                                              \
 		.alloc_buf = ares_interface_alloc_buf,                                             \
 		.alloc_buf_with_data = ares_interface_alloc_buf_with_data,                         \
 	};                                                                                         \

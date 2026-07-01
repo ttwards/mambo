@@ -86,14 +86,40 @@ struct net_buf *alloc_and_add_data(struct AresProtocol *protocol, uint8_t *data,
 	}
 }
 
-int send_try_lock(struct AresProtocol *protocol, struct net_buf *buf, struct k_mutex *mutex)
+static int send_with_tx_done(struct AresProtocol *protocol, struct net_buf *buf,
+			     ares_interface_tx_done_cb_t cb, void *user_data)
 {
-	if (protocol->interface->api->send_with_lock && mutex) {
-		return protocol->interface->api->send_with_lock(protocol->interface, buf, mutex);
-	} else {
-		k_mutex_unlock(mutex);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
+	if (cb != NULL) {
+		if (protocol->interface->api->send_with_callback == NULL) {
+			net_buf_unref(buf);
+			return -ENOTSUP;
+		}
+		return protocol->interface->api->send_with_callback(protocol->interface, buf, cb,
+								    user_data);
+	}
+
+	if (protocol->interface->api->send) {
 		return protocol->interface->api->send(protocol->interface, buf);
 	}
+
+	net_buf_unref(buf);
+	return -ENOTSUP;
+}
+
+static void dual_clear_tx_in_flight(struct AresInterface *interface, struct net_buf *buf,
+				    int status, void *user_data)
+{
+	atomic_t *tx_state = user_data;
+
+	ARG_UNUSED(interface);
+	ARG_UNUSED(buf);
+	ARG_UNUSED(status);
+
+	atomic_clear_bit(tx_state, DUAL_TX_IN_FLIGHT);
 }
 
 static void error_handle(struct AresProtocol *protocol, uint16_t req_id, uint16_t error)
@@ -204,9 +230,19 @@ static void usb_offline_clean(struct AresProtocol *protocol)
 {
 	struct tx_msg_bck msg;
 	struct dual_protocol_data *data = protocol->priv_data;
+
+	for (uint8_t i = 0; i < data->func_cnt; i++) {
+		atomic_clear_bit(&data->func_table[i].tx_state, DUAL_TX_IN_FLIGHT);
+	}
+
+	for (uint8_t i = 0; i < data->sync_cnt; i++) {
+		atomic_clear_bit(&data->sync_table[i].tx_state, DUAL_TX_IN_FLIGHT);
+	}
+
 	while (k_msgq_num_used_get(&data->func_tx_bckup_msgq) > 0) {
 		k_msgq_get(&data->func_tx_bckup_msgq, &msg, K_NO_WAIT);
 	}
+	data->func_tx_bckup_cnt = 0;
 }
 
 static void usb_trans_heart_beat(struct k_timer *timer)
@@ -306,11 +342,12 @@ static void parse_func(struct AresProtocol *protocol, func_table_t *map)
 	k_msgq_put(&data->func_tx_bckup_msgq, &msg, K_NO_WAIT);
 	data->func_tx_bckup_cnt++;
 
-	uint8_t *repl_frame = map->buf;
-	if (k_mutex_lock(&map->mutex, K_NO_WAIT) != 0) {
-		LOG_DBG("%s Failed to lock FUNC frame mutex.", data->name);
+	if (atomic_test_and_set_bit(&map->tx_state, DUAL_TX_IN_FLIGHT)) {
+		LOG_DBG("%s FUNC reply frame is still in flight.", data->name);
 		return;
 	}
+
+	uint8_t *repl_frame = map->buf;
 	GET_16BITS(repl_frame, REPL_HEAD_IDX) = REPL_FRAME_HEAD;
 	GET_16BITS(repl_frame, REPL_FUNC_ID_IDX) = map->id;
 	GET_32BITS(repl_frame, REPL_RET_IDX) = (uint32_t)ret;
@@ -324,9 +361,10 @@ static void parse_func(struct AresProtocol *protocol, func_table_t *map)
 
 	int err = 0;
 	struct net_buf *buf = alloc_and_add_data(protocol, repl_frame, frame_len);
-	err = send_try_lock(protocol, buf, &map->mutex);
+	err = send_with_tx_done(protocol, buf, dual_clear_tx_in_flight, &map->tx_state);
 
 	if (err != 0) {
+		atomic_clear_bit(&map->tx_state, DUAL_TX_IN_FLIGHT);
 		LOG_ERR("%s Failed to send REPLY frame.", data->name);
 		return;
 	}
@@ -386,6 +424,9 @@ int dual_sync_flush(struct AresProtocol *protocol, sync_table_t *pack)
 		LOG_ERR("%s Sync pack is NULL.", data->name);
 		return -EINVAL;
 	}
+	if (atomic_test_and_set_bit(&pack->tx_state, DUAL_TX_IN_FLIGHT)) {
+		return -EBUSY;
+	}
 	memcpy(pack->buf + SYNC_DATA_IDX, pack->data, pack->len);
 
 	size_t frame_len = pack->len + SYNC_FRAME_LENGTH_OFFSET;
@@ -397,9 +438,10 @@ int dual_sync_flush(struct AresProtocol *protocol, sync_table_t *pack)
 	// LOG_HEXDUMP_DBG(pack->buf, frame_len, "Sync data to send:");
 
 	struct net_buf *buf = alloc_and_add_data(protocol, pack->buf, frame_len);
-	int ret = send_try_lock(protocol, buf, &pack->mutex);
+	int ret = send_with_tx_done(protocol, buf, dual_clear_tx_in_flight, &pack->tx_state);
 
 	if (ret != 0) {
+		atomic_clear_bit(&pack->tx_state, DUAL_TX_IN_FLIGHT);
 		// LOG_ERR("Failed to send SYNC frame. %d", ret);
 		return -EBUSY;
 	}
@@ -457,6 +499,7 @@ sync_table_t *dual_sync_add(struct AresProtocol *protocol, uint16_t ID, uint8_t 
 	data->sync_table[data->sync_cnt].ID = ID;
 	data->sync_table[data->sync_cnt].len = len;
 	data->sync_table[data->sync_cnt].cb = cb;
+	atomic_set(&data->sync_table[data->sync_cnt].tx_state, 0);
 
 	size_t buf_size = len + SYNC_FRAME_LENGTH_OFFSET;
 	if (data->crc_enabled) {
@@ -465,12 +508,12 @@ sync_table_t *dual_sync_add(struct AresProtocol *protocol, uint16_t ID, uint8_t 
 
 	data->sync_table[data->sync_cnt].buf =
 		k_heap_aligned_alloc(&dual_protocol_heap, 4, buf_size, K_NO_WAIT);
-	memset(data->sync_table[data->sync_cnt].buf, 0, buf_size);
 	if (data->sync_table[data->sync_cnt].buf == NULL) {
 		LOG_ERR("%s Failed to allocate memory for SYNC frame. Count: %d", data->name,
 			data->sync_cnt);
 		return NULL;
 	}
+	memset(data->sync_table[data->sync_cnt].buf, 0, buf_size);
 	GET_16BITS(data->sync_table[data->sync_cnt].buf, SYNC_HEAD_IDX) = SYNC_FRAME_HEAD;
 	GET_16BITS(data->sync_table[data->sync_cnt].buf, SYNC_ID_IDX) = ID;
 	data->sync_cnt++;
@@ -496,6 +539,7 @@ void dual_func_add(struct AresProtocol *protocol, uint16_t id, dual_trans_func_t
 	}
 	data->func_table[data->func_cnt].id = id;
 	data->func_table[data->func_cnt].cb = cb;
+	atomic_set(&data->func_table[data->func_cnt].tx_state, 0);
 	data->func_cnt++;
 }
 
@@ -800,12 +844,14 @@ void ares_dual_protocol_event(struct AresProtocol *protocol, enum AresProtocolEv
 	if (event == ARES_PROTOCOL_EVENT_CONNECTED) {
 		LOG_INF("%s Connection established due to event.", data->name);
 		k_msleep(600);
+		usb_offline_clean(protocol);
 		data->online = true;
 		// 重置状态机状态
 		reset_parser_state(data);
 	} else if (event == ARES_PROTOCOL_EVENT_DISCONNECTED) {
 		LOG_INF("%s Connection lost due to event.", data->name);
 		data->online = false;
+		usb_offline_clean(protocol);
 		// 重置状态机状态
 		reset_parser_state(data);
 	}
