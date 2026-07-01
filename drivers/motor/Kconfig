@@ -20,6 +20,24 @@ config MOTOR_COMMON
       Add support for common motor drivers
 	select CAN
 
+config MOTOR_CAN_SCHED_REPLY_GUARD
+	bool "Reserve CAN reply windows in motor scheduler"
+	default y
+	depends on MOTOR_COMMON
+	help
+	  Prevent the motor CAN scheduler from queueing another TX frame on the
+	  same CAN controller immediately after a request frame that expects a
+	  reply. This gives lower-priority motor reply frames a chance to win bus
+	  arbitration under high load.
+
+config MOTOR_CAN_SCHED_REPLY_GUARD_EXTRA_US
+	int "Additional motor CAN reply guard time in microseconds"
+	default 60
+	depends on MOTOR_CAN_SCHED_REPLY_GUARD
+	help
+	  Extra time added after the calculated reply frame airtime. This covers
+	  motor-side processing delay before the reply frame starts arbitration.
+
 config MOTOR_DJI
     bool "MOTOR DJI"
     help

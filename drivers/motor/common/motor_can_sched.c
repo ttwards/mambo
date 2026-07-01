@@ -15,6 +15,10 @@ LOG_MODULE_REGISTER(motor_can_sched, LOG_LEVEL_INF);
 #define MOTOR_CAN_SCHED_STACK_SIZE    2048
 #define MOTOR_CAN_SCHED_THREAD_PRIO   0
 
+#ifndef CONFIG_MOTOR_CAN_SCHED_REPLY_GUARD_EXTRA_US
+#define CONFIG_MOTOR_CAN_SCHED_REPLY_GUARD_EXTRA_US 0
+#endif
+
 struct motor_can_sched_entry {
 	struct can_frame frame;
 	struct motor_can_sched_meta meta;
@@ -44,7 +48,11 @@ struct motor_can_sched_bus {
 	struct motor_can_sched_pending pending[MOTOR_CAN_SCHED_MAX_PENDING];
 	struct motor_can_sched_stats stats;
 	uint16_t phase_load[MOTOR_CAN_SCHED_SUPERFRAME];
+	uint32_t reply_guard_until_us;
+	uint16_t tx_reply_guard_us;
 	uint32_t last_log_ms;
+	bool tx_in_flight;
+	bool tx_expect_reply;
 	bool started;
 };
 
@@ -62,12 +70,58 @@ static bool sched_initialized;
 static uint32_t sched_tick;
 static uint32_t sched_trace_id;
 
-static uint16_t frame_time_us(uint8_t flags)
+static uint32_t uptime_us_32(void)
 {
-	return (flags & CAN_FRAME_IDE) ? 150U : 130U;
+	return (uint32_t)k_cyc_to_us_floor64(k_cycle_get_64());
 }
 
-static struct motor_can_sched_meta meta_from_param(const struct can_frame *frame,
+static bool us_reached(uint32_t now, uint32_t deadline)
+{
+	return (int32_t)(now - deadline) >= 0;
+}
+
+static uint32_t can_bitrate(const struct device *can_dev)
+{
+	const struct can_driver_config *cfg;
+
+	if ((can_dev == NULL) || (can_dev->config == NULL)) {
+		return CONFIG_CAN_DEFAULT_BITRATE;
+	}
+
+	cfg = (const struct can_driver_config *)can_dev->config;
+	return cfg->bitrate != 0U ? cfg->bitrate : CONFIG_CAN_DEFAULT_BITRATE;
+}
+
+static uint16_t bits_to_us(uint32_t bits, uint32_t bitrate)
+{
+	if (bitrate == 0U) {
+		bitrate = CONFIG_CAN_DEFAULT_BITRATE;
+	}
+
+	return (uint16_t)DIV_ROUND_UP(bits * 1000000ULL, bitrate);
+}
+
+static uint16_t frame_airtime_us(const struct device *can_dev, const struct can_frame *frame)
+{
+	uint32_t data_bits = (uint32_t)can_dlc_to_bytes(frame->dlc) * 8U;
+	uint32_t base_bits;
+	uint32_t stuffed_bits;
+	uint32_t stuff_bits;
+
+	if ((frame->flags & CAN_FRAME_IDE) != 0U) {
+		base_bits = 67U + data_bits;
+		stuffed_bits = 54U + data_bits;
+	} else {
+		base_bits = 47U + data_bits;
+		stuffed_bits = 34U + data_bits;
+	}
+
+	stuff_bits = stuffed_bits > 1U ? (stuffed_bits - 1U) / 4U : 0U;
+	return bits_to_us(base_bits + stuff_bits, can_bitrate(can_dev));
+}
+
+static struct motor_can_sched_meta meta_from_param(const struct device *can_dev,
+						   const struct can_frame *frame,
 						   const struct motor_can_sched_tx_param *param)
 {
 	struct motor_can_sched_meta meta = {
@@ -90,7 +144,7 @@ static struct motor_can_sched_meta meta_from_param(const struct can_frame *frame
 	meta.priority = param->high_priority ? MOTOR_CAN_SCHED_PRIO_HIGH : MOTOR_CAN_SCHED_PRIO_LOW;
 	meta.expect_reply = param->track_reply;
 	meta.trace_lifecycle = param->trace_lifecycle;
-	meta.reply_reserve_us = param->immediate_reply ? frame_time_us(frame->flags) : 0U;
+	meta.reply_reserve_us = param->immediate_reply ? frame_airtime_us(can_dev, frame) : 0U;
 	meta.ack_timeout_ms = param->ack_timeout_ms != 0U ? param->ack_timeout_ms : 5U;
 	meta.max_retries = param->max_retries != 0U ? param->max_retries : 1U;
 	meta.reply_id = param->reply_id;
@@ -124,18 +178,19 @@ static bool time_reached(uint32_t now, uint32_t deadline)
 	return (int32_t)(now - deadline) >= 0;
 }
 
-static uint16_t frame_cost_us(const struct can_frame *frame, const struct motor_can_sched_meta *meta)
+static uint16_t frame_cost_us(const struct device *can_dev, const struct can_frame *frame,
+			      const struct motor_can_sched_meta *meta)
 {
-	uint16_t cost = frame_time_us(frame->flags);
+	uint16_t cost = frame_airtime_us(can_dev, frame);
 
 	if (meta->reply_reserve_us != 0U) {
 		cost += meta->reply_reserve_us;
 	} else if (meta->expect_reply) {
-		cost += frame_time_us(frame->flags);
+		cost += frame_airtime_us(can_dev, frame);
 	}
 
 	if (meta->has_periodic_reply) {
-		cost += frame_time_us(frame->flags);
+		cost += frame_airtime_us(can_dev, frame);
 	}
 
 	return cost;
@@ -280,15 +335,34 @@ static void clear_pending_locked(struct motor_can_sched_pending *pending)
 
 static void tx_done_callback(const struct device *dev, int error, void *user_data)
 {
+	struct motor_can_sched_bus *bus = user_data;
+	k_spinlock_key_t key;
+	uint32_t now_us;
+
 	ARG_UNUSED(dev);
-	ARG_UNUSED(error);
-	ARG_UNUSED(user_data);
+
+	if (bus == NULL) {
+		return;
+	}
+
+	now_us = uptime_us_32();
+	key = k_spin_lock(&sched_lock);
+	bus->tx_in_flight = false;
+	if (error != 0) {
+		bus->stats.tx_busy++;
+	} else if (IS_ENABLED(CONFIG_MOTOR_CAN_SCHED_REPLY_GUARD) && bus->tx_expect_reply) {
+		bus->reply_guard_until_us = now_us + bus->tx_reply_guard_us;
+	}
+	bus->tx_expect_reply = false;
+	bus->tx_reply_guard_us = 0U;
+	k_spin_unlock(&sched_lock, key);
 }
 
 static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entry *entry)
 {
 	struct motor_can_sched_pending *pending = NULL;
 	k_spinlock_key_t key = k_spin_lock(&sched_lock);
+	uint16_t reply_guard_us = entry->meta.reply_reserve_us;
 	int ret = reserve_pending_locked(bus, entry, &pending);
 
 	if (ret != 0) {
@@ -297,12 +371,26 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		k_spin_unlock(&sched_lock, key);
 		return ret;
 	}
+
+	if (reply_guard_us == 0U && entry->meta.expect_reply) {
+		reply_guard_us = frame_airtime_us(bus->can_dev, &entry->frame);
+	}
+	if (entry->meta.expect_reply) {
+		reply_guard_us += CONFIG_MOTOR_CAN_SCHED_REPLY_GUARD_EXTRA_US;
+	}
+
+	bus->tx_in_flight = true;
+	bus->tx_expect_reply = entry->meta.expect_reply;
+	bus->tx_reply_guard_us = reply_guard_us;
 	k_spin_unlock(&sched_lock, key);
 
-	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, tx_done_callback, NULL);
+	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, tx_done_callback, bus);
 	if (ret != 0) {
 		key = k_spin_lock(&sched_lock);
 		clear_pending_locked(pending);
+		bus->tx_in_flight = false;
+		bus->tx_expect_reply = false;
+		bus->tx_reply_guard_us = 0U;
 		bus->stats.tx_busy++;
 		requeue_entry_locked(bus, entry);
 		k_spin_unlock(&sched_lock, key);
@@ -314,14 +402,14 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		pending->sent_at_ms = k_uptime_get_32();
 	}
 	bus->stats.tx_frames++;
-	bus->stats.window_tx_busy_us += frame_time_us(entry->frame.flags);
+	bus->stats.window_tx_busy_us += frame_airtime_us(bus->can_dev, &entry->frame);
 	if (entry->meta.reply_reserve_us != 0U) {
 		bus->stats.window_reserved_us += entry->meta.reply_reserve_us;
 	} else if (entry->meta.expect_reply) {
-		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
+		bus->stats.window_reserved_us += frame_airtime_us(bus->can_dev, &entry->frame);
 	}
 	if (entry->meta.has_periodic_reply) {
-		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
+		bus->stats.window_reserved_us += frame_airtime_us(bus->can_dev, &entry->frame);
 	}
 	k_spin_unlock(&sched_lock, key);
 
@@ -347,6 +435,7 @@ static void check_timeouts_locked(void)
 			}
 
 			bus->stats.ack_timeouts++;
+			bus->reply_guard_until_us = uptime_us_32();
 			if (pending->entry.retries < pending->entry.meta.max_retries) {
 				struct motor_can_sched_entry retry_entry = pending->entry;
 
@@ -424,6 +513,16 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 			while (budget_us > 0U) {
 				bool found = false;
 				uint16_t cost_us = 0U;
+				uint32_t now_us = uptime_us_32();
+
+				key = k_spin_lock(&sched_lock);
+				if (bus->tx_in_flight ||
+				    (IS_ENABLED(CONFIG_MOTOR_CAN_SCHED_REPLY_GUARD) &&
+				     !us_reached(now_us, bus->reply_guard_until_us))) {
+					k_spin_unlock(&sched_lock, key);
+					break;
+				}
+				k_spin_unlock(&sched_lock, key);
 
 				key = k_spin_lock(&sched_lock);
 				for (size_t prio = 0; prio < MOTOR_CAN_SCHED_PRIO_COUNT; prio++) {
@@ -438,7 +537,7 @@ static void motor_can_sched_thread(void *arg1, void *arg2, void *arg3)
 					break;
 				}
 
-				cost_us = frame_cost_us(&entry.frame, &entry.meta);
+				cost_us = frame_cost_us(bus->can_dev, &entry.frame, &entry.meta);
 				if (cost_us > budget_us) {
 					key = k_spin_lock(&sched_lock);
 					requeue_entry_locked(bus, &entry);
@@ -475,7 +574,7 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 	uint16_t best_phase = 0U;
 	uint32_t best_score = UINT32_MAX;
 	uint16_t period_ticks = job->period_ticks;
-	uint16_t cost = frame_cost_us(&job->frame, &job->meta);
+	uint16_t cost = frame_cost_us(bus->can_dev, &job->frame, &job->meta);
 
 	for (uint16_t phase = 0U; phase < period_ticks; phase++) {
 		uint32_t peak = 0U;
@@ -665,7 +764,7 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 	}
 
 	bus->stats.rx_frames++;
-	bus->stats.window_rx_busy_us += frame_time_us(frame->flags);
+	bus->stats.window_rx_busy_us += frame_airtime_us(can_dev, frame);
 
 	for (size_t i = 0; i < ARRAY_SIZE(bus->pending); i++) {
 		struct motor_can_sched_pending *pending = &bus->pending[i];
@@ -677,6 +776,7 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 			uint32_t rtt_ms = k_uptime_get_32() - pending->sent_at_ms;
 
 			bus->stats.ack_matches++;
+			bus->reply_guard_until_us = uptime_us_32();
 			ARG_UNUSED(rtt_ms);
 			memset(pending, 0, sizeof(*pending));
 			break;
@@ -723,7 +823,7 @@ int motor_can_sched_send(const struct device *can_dev, const struct can_frame *f
 		*handle_out = NULL;
 	}
 
-	meta = meta_from_param(frame, param);
+	meta = meta_from_param(can_dev, frame, param);
 	if ((param == NULL) || !param->loop) {
 		return motor_can_sched_submit(can_dev, frame, &meta);
 	}
