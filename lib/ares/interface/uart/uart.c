@@ -6,6 +6,7 @@
 
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/linker/section_tags.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net_buf.h>
 
@@ -13,6 +14,7 @@
 #include "ares/interface/uart/uart.h"
 #include "zephyr/sys/ring_buffer.h"
 #include <ares/protocol/ares_protocol.h>
+#include <string.h>
 
 LOG_MODULE_REGISTER(ares_uart, LOG_LEVEL_INF); // 日志级别可以按需调整
 
@@ -21,8 +23,30 @@ LOG_MODULE_REGISTER(ares_uart, LOG_LEVEL_INF); // 日志级别可以按需调整
 #define ARES_UART_PROCESSING_THREAD_PRIORITY   K_PRIO_PREEMPT(5)
 #define ARES_UART_RX_INACTIVE_TIMEOUT          10
 
-NET_BUF_POOL_DEFINE(uart_net_buf_pool, 16, 128, 4, NULL); // 增加缓冲区数量和大小
-K_MEM_SLAB_DEFINE(uart_rx_slab, ARES_UART_BLOCK_SIZE, 8, 4);
+struct ares_uart_tx_meta {
+	ares_interface_tx_done_cb_t tx_done;
+	void *tx_user_data;
+};
+
+NET_BUF_POOL_DEFINE(uart_net_buf_pool, 16, 128, sizeof(struct ares_uart_tx_meta),
+		    NULL); // 增加缓冲区数量和大小
+K_MEM_SLAB_DEFINE_IN_SECT(uart_rx_slab, __nocache, ARES_UART_BLOCK_SIZE, 8, 4);
+
+static uint8_t __nocache __aligned(32) uart_tx_dma_buf[MAX_FRAME_PAYLOAD_SIZE];
+
+static void ares_uart_complete_tx(struct AresInterface *interface, struct net_buf *buf, int status)
+{
+	struct ares_uart_tx_meta *meta;
+
+	if (buf == NULL) {
+		return;
+	}
+
+	meta = net_buf_user_data(buf);
+	if (meta && meta->tx_done) {
+		meta->tx_done(interface, buf, status, meta->tx_user_data);
+	}
+}
 
 /**
  * @brief 发送一个数据包到队列中
@@ -35,10 +59,23 @@ K_MEM_SLAB_DEFINE(uart_rx_slab, ARES_UART_BLOCK_SIZE, 8, 4);
  */
 int ares_uart_send(struct AresInterface *interface, struct net_buf *buf)
 {
+	return ares_uart_send_with_callback(interface, buf, NULL, NULL);
+}
+
+int ares_uart_send_with_callback(struct AresInterface *interface, struct net_buf *buf,
+				 ares_interface_tx_done_cb_t cb, void *user_data)
+{
 	struct AresUartInterface *uart_if = interface->priv_data;
+	struct ares_uart_tx_meta *meta = net_buf_user_data(buf);
+
+	if (meta) {
+		meta->tx_done = cb;
+		meta->tx_user_data = user_data;
+	}
 
 	if (k_msgq_put(&uart_if->tx_msgq, &buf, K_NO_WAIT) != 0) {
 		LOG_ERR("TX message queue is full. Dropping packet!");
+		ares_uart_complete_tx(interface, buf, -ENOMEM);
 		net_buf_unref(buf);
 		return -ENOMEM;
 	}
@@ -56,12 +93,35 @@ int ares_uart_send_raw(struct AresInterface *interface, uint8_t *data, uint16_t 
 		LOG_ERR("uart_tx failed with error %d", err);
 		return -EIO;
 	}
+	return 0;
 }
 
 struct net_buf *ares_uart_interface_alloc_buf(struct AresInterface *interface)
 {
 	struct net_buf *buf = net_buf_alloc(&uart_net_buf_pool, K_NO_WAIT);
+	if (buf) {
+		struct ares_uart_tx_meta *meta = net_buf_user_data(buf);
+		if (meta) {
+			meta->tx_done = NULL;
+			meta->tx_user_data = NULL;
+		}
+	}
 	return buf;
+}
+
+uint32_t ares_uart_caps(struct AresInterface *interface)
+{
+	ARG_UNUSED(interface);
+
+	return ARES_INTERFACE_CAP_STREAM | ARES_INTERFACE_CAP_TX_COMPLETE |
+	       ARES_INTERFACE_CAP_TX_QUEUE;
+}
+
+size_t ares_uart_mtu(struct AresInterface *interface)
+{
+	ARG_UNUSED(interface);
+
+	return MAX_FRAME_PAYLOAD_SIZE;
 }
 
 /**
@@ -80,11 +140,20 @@ static void ares_uart_tx_thread_entry(void *p1, void *p2, void *p3)
 	while (1) {
 		k_msgq_get(&uart_if->tx_msgq, &buf, K_FOREVER);
 		k_sem_take(&uart_if->tx_sem, K_FOREVER);
+		if (buf->len > sizeof(uart_tx_dma_buf)) {
+			LOG_ERR("UART frame too large for DMA buffer: %u", buf->len);
+			ares_uart_complete_tx(interface, buf, -EMSGSIZE);
+			net_buf_unref(buf);
+			k_sem_give(&uart_if->tx_sem);
+			continue;
+		}
+		memcpy(uart_tx_dma_buf, buf->data, buf->len);
 		uart_if->current_tx_buf = buf;
-		err = uart_tx(uart_if->uart_dev, buf->data, buf->len, SYS_FOREVER_US);
+		err = uart_tx(uart_if->uart_dev, uart_tx_dma_buf, buf->len, SYS_FOREVER_US);
 		if (err != 0) {
 			LOG_ERR("uart_tx failed with error %d, even with flow control!", err);
 			k_sem_give(&uart_if->tx_sem);
+			ares_uart_complete_tx(interface, uart_if->current_tx_buf, -EIO);
 			net_buf_unref(uart_if->current_tx_buf);
 			uart_if->current_tx_buf = NULL;
 		}
@@ -101,6 +170,7 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 	/* --- TX 事件处理 --- */
 	case UART_TX_DONE:
 		if (uart_if->current_tx_buf != NULL) {
+			ares_uart_complete_tx(uart_if->interface, uart_if->current_tx_buf, 0);
 			net_buf_unref(uart_if->current_tx_buf);
 			uart_if->current_tx_buf = NULL;
 		}
@@ -110,6 +180,8 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 	case UART_TX_ABORTED:
 		LOG_WRN("UART TX aborted");
 		if (uart_if->current_tx_buf != NULL) {
+			ares_uart_complete_tx(uart_if->interface, uart_if->current_tx_buf,
+					      -ECANCELED);
 			net_buf_unref(uart_if->current_tx_buf);
 			uart_if->current_tx_buf = NULL;
 		}
@@ -178,6 +250,7 @@ void ares_uart_thread_entry(void *p1, void *p2, void *p3)
 void ares_uart_init_dev(struct AresInterface *interface, const struct device *uart_dev)
 {
 	struct AresUartInterface *uart_if = interface->priv_data;
+	uart_if->interface = interface;
 	uart_if->uart_dev = (struct device *)uart_dev;
 }
 
@@ -185,6 +258,7 @@ void ares_uart_init_dev(struct AresInterface *interface, const struct device *ua
 int ares_uart_init(struct AresInterface *interface)
 {
 	struct AresUartInterface *uart_if = interface->priv_data;
+	uart_if->interface = interface;
 
 	if (!device_is_ready(uart_if->uart_dev)) {
 		LOG_ERR("UART device not ready");
@@ -215,7 +289,6 @@ int ares_uart_init(struct AresInterface *interface)
 			(void *)interface, NULL, NULL, ARES_UART_PROCESSING_THREAD_PRIORITY, 0,
 			K_NO_WAIT);
 	k_thread_name_set(&uart_if->thread, "ares_uart_rx");
-	k_thread_start(&uart_if->thread);
 
 	/* --- 新增: 初始化 TX 部分 --- */
 	uart_if->current_tx_buf = NULL;
@@ -228,7 +301,6 @@ int ares_uart_init(struct AresInterface *interface)
 			(void *)interface, NULL, NULL, ARES_UART_PROCESSING_THREAD_PRIORITY, 0,
 			K_NO_WAIT);
 	k_thread_name_set(&uart_if->tx_thread, "ares_uart_tx");
-	k_thread_start(&uart_if->tx_thread);
 
 	LOG_INF("Ares UART Interface initialized with TX queue.");
 	return 0;
