@@ -278,6 +278,13 @@ static void clear_pending_locked(struct motor_can_sched_pending *pending)
 	}
 }
 
+static void tx_done_callback(const struct device *dev, int error, void *user_data)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(error);
+	ARG_UNUSED(user_data);
+}
+
 static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entry *entry)
 {
 	struct motor_can_sched_pending *pending = NULL;
@@ -292,7 +299,7 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 	}
 	k_spin_unlock(&sched_lock, key);
 
-	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, NULL, NULL);
+	ret = can_send(bus->can_dev, &entry->frame, K_NO_WAIT, tx_done_callback, NULL);
 	if (ret != 0) {
 		key = k_spin_lock(&sched_lock);
 		clear_pending_locked(pending);
@@ -317,13 +324,6 @@ static int send_one(struct motor_can_sched_bus *bus, struct motor_can_sched_entr
 		bus->stats.window_reserved_us += frame_time_us(entry->frame.flags);
 	}
 	k_spin_unlock(&sched_lock, key);
-
-	k_busy_wait(frame_time_us(entry->frame.flags));
-	if (entry->meta.reply_reserve_us != 0U) {
-		k_busy_wait(entry->meta.reply_reserve_us);
-	} else if (entry->meta.expect_reply) {
-		k_busy_wait(frame_time_us(entry->frame.flags));
-	}
 
 	return 0;
 }
