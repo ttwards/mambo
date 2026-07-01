@@ -3,7 +3,6 @@
 # Copyright (c) 2025 ttwards <12411711@mail.sustech.edu.cn>
 # SPDX-License-Identifier: Apache-2.0
 
-rsource "connectivity/Kconfig"
 rsource "interface/Kconfig"
 rsource "protocol/Kconfig"
 
@@ -75,11 +74,6 @@ config SLAVE_BOARD
 	bool "SLAVE_BOARD"
 	help
 	  Enable SLAVE_BOARD
-
-config UART_TRANS_LIB
-	bool "UART_TRANS_LIB"
-	help
-	  Enable UART_TRANS_LIB
 
 config EXPERIMENTAL_BULK_LIB
 	bool "EXPERIMENTAL_BULK_LIB"
