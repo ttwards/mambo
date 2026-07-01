@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # ARES USB Transport Update
 
 Date: 2026-07-01

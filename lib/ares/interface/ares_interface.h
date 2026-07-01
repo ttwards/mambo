@@ -14,9 +14,8 @@ extern "C" {
 struct AresProtocol;
 struct AresInterface;
 
-typedef void (*ares_interface_tx_done_cb_t)(struct AresInterface *interface,
-					    struct net_buf *buf, int status,
-					    void *user_data);
+typedef void (*ares_interface_tx_done_cb_t)(struct AresInterface *interface, struct net_buf *buf,
+					    int status, void *user_data);
 
 enum AresInterfaceCaps {
 	ARES_INTERFACE_CAP_STREAM = BIT(0),
