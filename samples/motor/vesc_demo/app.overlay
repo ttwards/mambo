@@ -4,7 +4,6 @@
             compatible = "vesc,motor";
             id = <41>;
             can_channel = <&can1>;
-            capabilities = "angle", "speed", "torque";
             gear_ratio = "1.0f";
             kv = "150.0f";
             pole_pairs = "14";

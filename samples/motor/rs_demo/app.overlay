@@ -9,15 +9,13 @@
             status = "okay";
             can_channel = <&can1>;
             controllers = <&mit_pid_1>;
-            capabilities = "mit";
         };
 
     };
 
-    pid {
+    controllers {
 		mit_pid_1: mit_pid_1 {
-			#controller-cells = <0>;
-			compatible = "pid,single";
+			compatible = "motor-controller,mit";
 			k_p = "20";
 			k_i = "0.0";
 			k_d = "1.0";

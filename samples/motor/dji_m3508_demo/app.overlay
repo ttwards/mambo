@@ -2,8 +2,8 @@
 
 / {
     speed_pid_m3508: speed_pid_m3508 {
-        compatible = "pid,single";
-        #controller-cells = <0>;
+        compatible = "motor-controller,vo";
+        target = "speed";
         k_p = "8";
         k_i = "0.5";
         k_d = "0.1";
@@ -11,11 +11,13 @@
     };
 
     angle_pid_m3508: angle_pid_m3508 {
-        compatible = "pid,single";
-        #controller-cells = <0>;
-        k_p = "10";
-        k_i = "0";
-        k_d = "2";
+        compatible = "motor-controller,pv";
+        pos_k_p = "10";
+        pos_k_i = "0";
+        pos_k_d = "2";
+        vel_k_p = "8";
+        vel_k_i = "0.5";
+        vel_k_d = "0.1";
         out_max = "50";
     };
 
@@ -30,6 +32,5 @@
         can_channel = <&can1>;
         // 应当保持外环在前，内环在后
         controllers = <&angle_pid_m3508 &speed_pid_m3508>;
-        capabilities = "angle", "speed";
     };
 };

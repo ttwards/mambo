@@ -67,7 +67,6 @@ int main(void)
 	motor_control(motor, ENABLE_MOTOR);
 	k_msleep(100); // 等待电机使能
 
-	motor_set_mode(motor, ML_SPEED);
 	LOG_INF("电机已启用");
 	/* Start Feedback thread*/
 	while (1) {

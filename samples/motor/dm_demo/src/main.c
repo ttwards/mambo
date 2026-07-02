@@ -60,7 +60,6 @@ int main(void)
 	// motor_control(dm_motor, SET_ZERO);
 	motor_control(dm_motor, ENABLE_MOTOR);
 	LOG_INF("电机已启用");
-	motor_set_mode(dm_motor, MIT);
 
 	k_msleep(1000);
 

@@ -53,7 +53,6 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&wheel_angle_pid &wheel_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 
 		motor_wheel1: motor_wheel1{
@@ -66,7 +65,6 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&wheel_angle_pid &wheel_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 
 		motor_wheel2: motor_wheel2{
@@ -79,7 +77,6 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&wheel_angle_pid &wheel_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 
 		motor_steer0: motor_steer0{
@@ -93,7 +90,6 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&steer_angle_pid &steer_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 
 		motor_steer1: motor_steer1{
@@ -107,7 +103,6 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&steer_angle_pid &steer_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 
 		motor_steer2: motor_steer2{
@@ -121,14 +116,14 @@
 			status = "okay";
 			can_channel = <&can2>;
 			controllers = <&steer_angle_pid &steer_speed_pid>;
-			capabilities = "angle", "speed";
 		};
 	};
 
-	pid {
+	controller {
 		wheel_speed_pid: wheel_speed_pid {
 			#controller-cells = <0>;
-			compatible = "pid,single";
+			compatible = "motor-controller,vo";
+			target = "speed";
 			k_p = "2.65";
 			k_d = "60";
 			detri_lpf = "0.85";
@@ -137,15 +132,18 @@
 
 		wheel_angle_pid: wheel_angle_pid {
 			#controller-cells = <0>;
-			compatible = "pid,single";
-			k_p = "3";
-			k_d = "320";
+			compatible = "motor-controller,pv";
+			pos_k_p = "3";
+			pos_k_d = "320";
+			vel_k_p = "2.65";
+			vel_k_d = "60";
 			detri_lpf = "0.85";
 		};
 
 		steer_speed_pid: steer_speed_pid {
 			#controller-cells = <0>;
-			compatible = "pid,single";
+			compatible = "motor-controller,vo";
+			target = "speed";
 			k_p = "0.023";
 			k_d = "2";
 			detri_lpf = "0.1";
@@ -153,13 +151,17 @@
 
 		steer_angle_pid: steer_angle_pid {
 			#controller-cells = <0>;
-			compatible = "pid,single";
-			k_p = "1.25";
-			k_d = "3";
+			compatible = "motor-controller,pv";
+			pos_k_p = "1.25";
+			pos_k_d = "3";
+			vel_k_p = "0.023";
+			vel_k_d = "2";
 			i_max = "2";
 			detri_lpf = "0.25";
 		};
+	};
 
+	pid {
 		chassis_roll_angle_pid: chassis_roll_angle_pid {
 			#controller-cells = <0>;
 			compatible = "pid,single";

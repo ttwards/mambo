@@ -9,13 +9,12 @@
 			status = "okay";
 			can_channel = <&can1>;
 			controllers = <&mit>;
-			capabilities = "mit";
 			t_max = "5";
 			freq = <1000>;
 		};
 	};
 	mit: mit{
-		compatible = "pid,single";
+		compatible = "motor-controller,mit";
 		k_p = "2";
 		k_d = "0.5";
 	};

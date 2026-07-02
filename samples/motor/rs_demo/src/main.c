@@ -72,7 +72,6 @@ int main(void)
 	motor_control(motor, SET_ZERO);
 	k_msleep(100);
 
-	motor_set_mode(motor, MIT);
 	LOG_INF("电机已启用");
 	k_msleep(1000);
 

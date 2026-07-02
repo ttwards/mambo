@@ -42,7 +42,6 @@ int main(void)
 	motor_control(motor1, ENABLE_MOTOR);
 	k_sleep(K_MSEC(500));
 
-	motor_set_mode(motor1, MIT);
 	/* Start Feedback thread*/
 	struct k_thread feedback_thread_data;
 	feedback_tid = k_thread_create(&feedback_thread_data,

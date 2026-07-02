@@ -10,30 +10,30 @@
 			status = "okay";
 			can_channel = <&can1>;
 			controllers = <&mit_pid_1 &angle_pid_1 &speed_pid_1>;
-			capabilities = "mit","pv", "vo";
 		};
 
 
 	};
 
-	pid {
+	controllers {
 		mit_pid_1: mit_pid_1 {
-			#controller-cells = <0>;
-			compatible = "pid,single";
+			compatible = "motor-controller,mit";
 			k_p = "10";
 			k_i = "0.0";
 			k_d = "0.8";
 		};
 		angle_pid_1: angle_pid_1 {
-			#controller-cells = <0>;
-			compatible = "pid,single";
-			k_p = "10";
-			k_i = "0.0";
-			k_d = "0.8";
+			compatible = "motor-controller,pv";
+			pos_k_p = "10";
+			pos_k_i = "0.0";
+			pos_k_d = "0.8";
+			vel_k_p = "10";
+			vel_k_i = "0.0";
+			vel_k_d = "0.8";
 		};
 		speed_pid_1: speed_pid_1 {
-			#controller-cells = <0>;
-			compatible = "pid,single";
+			compatible = "motor-controller,vo";
+			target = "speed";
 			k_p = "10";
 			k_i = "0.0";
 			k_d = "0.8";
