@@ -19,27 +19,27 @@
 #include <arm_math.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
-#define deg2high(deg)  ((deg)*3.14159f * 45.0f / 360.0f)
-#define high2deg(high) ((high)*360.0f / (3.14159f * 45.0f))
-#define CHASSIS_CMD_X_IDX      0
-#define CHASSIS_CMD_Y_IDX      1
-#define CHASSIS_CMD_GYRO_IDX   2
-#define CHASSIS_RX_TIMEOUT_MISSES 10U
+#define deg2high(deg)              ((deg) * 3.14159f * 45.0f / 360.0f)
+#define high2deg(high)             ((high) * 360.0f / (3.14159f * 45.0f))
+#define CHASSIS_CMD_X_IDX          0
+#define CHASSIS_CMD_Y_IDX          1
+#define CHASSIS_CMD_GYRO_IDX       2
+#define CHASSIS_RX_TIMEOUT_MISSES  10U
 #define DM_TELEMETRY_LOG_PERIOD_MS 50U
 
-#define SBUS_SRC_SWITCH_CH 5
-#define SBUS_HEIGHT_GROUP0_CH 6
-#define SBUS_HEIGHT_GROUP1_CH 7
-#define SBUS_SRC_SWITCH_THRESHOLD 0.3f
+#define SBUS_SRC_SWITCH_CH         5
+#define SBUS_HEIGHT_GROUP0_CH      6
+#define SBUS_HEIGHT_GROUP1_CH      7
+#define SBUS_SRC_SWITCH_THRESHOLD  0.3f
 #define SBUS_SWITCH_HIGH_THRESHOLD 0.3f
 #define SBUS_SWITCH_LOW_THRESHOLD  -0.3f
-#define SBUS_HEIGHT_GROUP_COUNT     2
+#define SBUS_HEIGHT_GROUP_COUNT    2
 
-#define SUSPENSION_HEIGHT_LOW  -20.0f
-#define SUSPENSION_HEIGHT_MID  20.0f
-#define SUSPENSION_HEIGHT_HIGH 200.0f
-#define SUSPENSION_HEIGHT_MAX  400.0f
-#define SUSPENSION_HEIGHT_WRAP 1350.0f
+#define SUSPENSION_HEIGHT_LOW       -20.0f
+#define SUSPENSION_HEIGHT_MID       20.0f
+#define SUSPENSION_HEIGHT_HIGH      200.0f
+#define SUSPENSION_HEIGHT_MAX       400.0f
+#define SUSPENSION_HEIGHT_WRAP      1350.0f
 #define SUSPENSION_HEIGHT_WRAP_HALF (SUSPENSION_HEIGHT_WRAP / 2.0f)
 
 /* ==================== USB 协议 (原 2026_R2usb_imu) ==================== */
@@ -190,13 +190,12 @@ static void log_dm_telemetry_if_due(void)
 		}
 	}
 
-	LOG_INF("[DM] pos_deg=[%.1f,%.1f,%.1f,%.1f] speed_rpm=[%.1f,%.1f,%.1f,%.1f] torque=[%.2f,%.2f,%.2f,%.2f]",
-		(double)status[0].angle, (double)status[1].angle,
-		(double)status[2].angle, (double)status[3].angle,
-		(double)status[0].rpm, (double)status[1].rpm,
-		(double)status[2].rpm, (double)status[3].rpm,
-		(double)status[0].torque, (double)status[1].torque,
-		(double)status[2].torque, (double)status[3].torque);
+	LOG_INF("[DM] pos_deg=[%.1f,%.1f,%.1f,%.1f] speed_rpm=[%.1f,%.1f,%.1f,%.1f] "
+		"torque=[%.2f,%.2f,%.2f,%.2f]",
+		(double)status[0].angle, (double)status[1].angle, (double)status[2].angle,
+		(double)status[3].angle, (double)status[0].rpm, (double)status[1].rpm,
+		(double)status[2].rpm, (double)status[3].rpm, (double)status[0].torque,
+		(double)status[1].torque, (double)status[2].torque, (double)status[3].torque);
 }
 
 void run()
@@ -227,7 +226,8 @@ void lifthigh(int id, float high)
 		high = SUSPENSION_HEIGHT_LOW;
 	}
 	if (dmmotor[id] != NULL) {
-		motor_set_mit(dmmotor[id], 250.0f, -1.0f * rank[id] * (float)high2deg(high), -0.5f *rank[id]);
+		motor_set_mit(dmmotor[id], 250.0f, -1.0f * rank[id] * (float)high2deg(high),
+			      -0.5f * rank[id]);
 	}
 
 	k_sleep(K_USEC(130));
@@ -370,14 +370,13 @@ void console_feedback(void *arg1, void *arg2, void *arg3)
 			apply_usb_height_cmd_if_ready();
 		}
 		if (cnt++ % 1000 == 0) {
-			LOG_INF("[CHASSIS] src=%s sw=%.2f sensor=[%.0f,%.0f,%.0f,%.0f] high=[%.1f,%.1f,%.1f,%.1f] cmd=(%.1f,%.1f,%.1f) rx(ch=%u,h=%u)",
+			LOG_INF("[CHASSIS] src=%s sw=%.2f sensor=[%.0f,%.0f,%.0f,%.0f] "
+				"high=[%.1f,%.1f,%.1f,%.1f] cmd=(%.1f,%.1f,%.1f) rx(ch=%u,h=%u)",
 				was_sbus_mode ? "sbus" : "usb", (double)src_switch,
-				(double)angle[0], (double)angle[1],
-				(double)angle[2], (double)angle[3],
-				(double)angle[4], (double)angle[5],
-				(double)angle[6], (double)angle[7],
-				(double)X, (double)Y, (double)angvel,
-				chassis_rx_count, height_rx_count);
+				(double)angle[0], (double)angle[1], (double)angle[2],
+				(double)angle[3], (double)angle[4], (double)angle[5],
+				(double)angle[6], (double)angle[7], (double)X, (double)Y,
+				(double)angvel, chassis_rx_count, height_rx_count);
 			log_sbus_channels();
 		}
 	}
@@ -401,7 +400,6 @@ int height_cmd_rx_cb(int status)
 	if (status == SYNC_PACK_STATUS_DONE) {
 		memcpy(height_cmd, height_cmd_buf, sizeof(height_cmd));
 		height_rx_count++;
-
 	}
 	return 0;
 }
@@ -536,9 +534,9 @@ int main(void)
 	}
 
 	chassis_rx = dual_sync_add(&dual_protocol, 0x0111, chassis_cmd_buf, sizeof(chassis_cmd_buf),
-				     (dual_trans_cb_t)chassis_cmd_rx_cb);
+				   (dual_trans_cb_t)chassis_cmd_rx_cb);
 	height_rx = dual_sync_add(&dual_protocol, 0x0112, height_cmd_buf, sizeof(height_cmd_buf),
-				    (dual_trans_cb_t)height_cmd_rx_cb);
+				  (dual_trans_cb_t)height_cmd_rx_cb);
 	angle_tx = dual_sync_add(&dual_protocol, 0x0121, anglebuf, 48, NULL);
 	if (chassis_rx == NULL || height_rx == NULL || angle_tx == NULL) {
 		LOG_ERR("failed to register dual sync packs");
@@ -562,8 +560,8 @@ int main(void)
 		}
 
 		for (int i = 0; i < 4; i++) {
-			float height = -1.0f * rank[i] *
-				       deg2high((float)motor_get_angle(dmmotor[i]));
+			float height =
+				-1.0f * rank[i] * deg2high((float)motor_get_angle(dmmotor[i]));
 
 			if (height > SUSPENSION_HEIGHT_WRAP_HALF) {
 				height -= SUSPENSION_HEIGHT_WRAP;
@@ -584,7 +582,8 @@ int main(void)
 				angle_tx_fail++;
 				if (angle_fail_last_log == 0 ||
 				    angle_tx_fail - angle_fail_last_log >= 100) {
-					LOG_ERR("[USB_ANGLE_FAIL] ret=%d (fail=%u)", ret, angle_tx_fail);
+					LOG_ERR("[USB_ANGLE_FAIL] ret=%d (fail=%u)", ret,
+						angle_tx_fail);
 					angle_fail_last_log = angle_tx_fail;
 				}
 			}

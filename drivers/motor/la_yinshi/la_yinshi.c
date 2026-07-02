@@ -57,9 +57,8 @@ static uint8_t la_calc_checksum(const uint8_t *buf, uint8_t len)
  *
  * @return Total frame length (8 + data_len for no-data commands, etc.)
  */
-static uint8_t la_pack_command(uint8_t id, uint8_t cmd, uint8_t index,
-			       const uint8_t *data, uint8_t data_len,
-			       uint8_t *out)
+static uint8_t la_pack_command(uint8_t id, uint8_t cmd, uint8_t index, const uint8_t *data,
+			       uint8_t data_len, uint8_t *out)
 {
 	uint8_t payload_len = data_len + 2; /* CMD + Index + Data */
 	uint8_t pos = 0;
@@ -111,8 +110,7 @@ static uint8_t la_pack_command(uint8_t id, uint8_t cmd, uint8_t index,
  *   [13-14] = internal data 1
  *   [15-16] = internal data 2
  */
-static void la_parse_status_response(const uint8_t *payload, uint8_t len,
-				     struct la_status *status)
+static void la_parse_status_response(const uint8_t *payload, uint8_t len, struct la_status *status)
 {
 	if (len < 13) {
 		return;
@@ -153,8 +151,7 @@ static void la_parse_status_response(const uint8_t *payload, uint8_t len,
  * These responses carry the same status layout as the explicit query-status
  * command. We extract position and fault info to update the cache.
  */
-static void la_parse_generic_response(const uint8_t *payload, uint8_t len,
-				      struct la_status *status)
+static void la_parse_generic_response(const uint8_t *payload, uint8_t len, struct la_status *status)
 {
 	/* Most responses from the actuator use the same status layout.
 	 * For CMD_WR_DRV (0x21, 0x03, 0x20, 0x19) replies:
@@ -170,9 +167,8 @@ static void la_parse_generic_response(const uint8_t *payload, uint8_t len,
 
 	uint8_t cmd = payload[0];
 
-	if (cmd == LA_CMD_MC || cmd == LA_CMD_WR_DRV_POS ||
-	    cmd == LA_CMD_WR_DRV_POS_NF || cmd == LA_CMD_WR_DRV_FOLLOW ||
-	    cmd == LA_CMD_WR_DRV_FOLLOW_NF) {
+	if (cmd == LA_CMD_MC || cmd == LA_CMD_WR_DRV_POS || cmd == LA_CMD_WR_DRV_POS_NF ||
+	    cmd == LA_CMD_WR_DRV_FOLLOW || cmd == LA_CMD_WR_DRV_FOLLOW_NF) {
 		/* These all return status info in the same format */
 		la_parse_status_response(payload, len, status);
 	}
@@ -254,7 +250,8 @@ static void la_uart_isr(const struct device *uart_dev, void *user_data)
 				 * = 1 + 1 + rx_len = rx_len + 2 bytes
 				 *
 				 * But the length byte itself is NOT in rx_buf. We stored it
-				 * in rx_len. So checksum = (rx_len + sum of rx_buf[0..rx_len]) & 0xFF
+				 * in rx_len. So checksum = (rx_len + sum of rx_buf[0..rx_len]) &
+				 * 0xFF
 				 */
 				uint8_t expected_chk = data->rx_buf[data->rx_pos - 1];
 				uint16_t sum = data->rx_len; /* length byte */
@@ -271,14 +268,12 @@ static void la_uart_isr(const struct device *uart_dev, void *user_data)
 					if (rx_id == cfg->id) {
 						/* Copy payload (excluding ID and checksum) */
 						data->reply_len = data->rx_len;
-						memcpy(data->reply_buf,
-						       &data->rx_buf[1],
+						memcpy(data->reply_buf, &data->rx_buf[1],
 						       data->rx_len);
 						/* Parse and update status cache */
-						la_parse_generic_response(
-							data->reply_buf,
-							data->reply_len,
-							&data->current_status);
+						la_parse_generic_response(data->reply_buf,
+									  data->reply_len,
+									  &data->current_status);
 						/* Wake waiting thread */
 						k_sem_give(&data->reply_sem);
 					}
@@ -312,10 +307,9 @@ static void la_uart_isr(const struct device *uart_dev, void *user_data)
  *
  * @return 0 on success, -ETIMEDOUT on all retries exhausted, -EIO on error.
  */
-static int la_send_and_wait(const struct device *dev,
-			    uint8_t cmd, uint8_t index,
-			    const uint8_t *data, uint8_t data_len,
-			    uint16_t timeout_ms, uint8_t max_retries)
+static int la_send_and_wait(const struct device *dev, uint8_t cmd, uint8_t index,
+			    const uint8_t *data, uint8_t data_len, uint16_t timeout_ms,
+			    uint8_t max_retries)
 {
 	struct la_yinshi_data *data_d = dev->data;
 	const struct la_yinshi_config *cfg = dev->config;
@@ -363,8 +357,8 @@ static int la_send_and_wait(const struct device *dev,
 		}
 
 		/* Timeout — will retry if attempts remain */
-		LOG_DBG("%s: attempt %d/%d timeout (cmd=0x%02x idx=0x%02x)",
-			dev->name, attempt + 1, max_retries + 1, cmd, index);
+		LOG_DBG("%s: attempt %d/%d timeout (cmd=0x%02x idx=0x%02x)", dev->name, attempt + 1,
+			max_retries + 1, cmd, index);
 
 		/* Reset RX state machine after timeout (may be stuck) */
 		data_d->rx_state = LA_RX_WAIT_HEADER1;
@@ -372,8 +366,8 @@ static int la_send_and_wait(const struct device *dev,
 
 	/* All retries exhausted */
 	data_d->current_status.online = false;
-	LOG_WRN("%s: no reply after %d attempts (cmd=0x%02x idx=0x%02x)",
-		dev->name, max_retries + 1, cmd, index);
+	LOG_WRN("%s: no reply after %d attempts (cmd=0x%02x idx=0x%02x)", dev->name,
+		max_retries + 1, cmd, index);
 	return -ETIMEDOUT;
 }
 
@@ -398,9 +392,8 @@ int la_yinshi_set_position(const struct device *dev, uint16_t position)
 	k_mutex_lock(&data->lock, K_FOREVER);
 
 	/* Position mode with feedback: CMD=0x21, Index=0x37 */
-	ret = la_send_and_wait(dev, LA_CMD_WR_DRV_POS, LA_INDEX_TARGET_POS,
-			       pos_data, sizeof(pos_data),
-			       cfg->reply_timeout_ms, cfg->max_retries);
+	ret = la_send_and_wait(dev, LA_CMD_WR_DRV_POS, LA_INDEX_TARGET_POS, pos_data,
+			       sizeof(pos_data), cfg->reply_timeout_ms, cfg->max_retries);
 
 	k_mutex_unlock(&data->lock);
 	return ret;
@@ -420,8 +413,7 @@ int la_yinshi_get_status(const struct device *dev, struct la_status *status)
 	k_mutex_lock(&data->lock, K_FOREVER);
 
 	/* Query status: CMD=0x04, Index=0x00, Data=0x22 */
-	ret = la_send_and_wait(dev, LA_CMD_MC, 0x00, &mc_data, 1,
-			       cfg->reply_timeout_ms, 0);
+	ret = la_send_and_wait(dev, LA_CMD_MC, 0x00, &mc_data, 1, cfg->reply_timeout_ms, 0);
 
 	if (ret == 0) {
 		memcpy(status, &data->current_status, sizeof(*status));
@@ -464,8 +456,7 @@ int la_yinshi_cmd(const struct device *dev, enum la_cmd cmd)
 	k_mutex_lock(&data->lock, K_FOREVER);
 
 	/* All MC commands: CMD=0x04, Index=0x00 */
-	ret = la_send_and_wait(dev, LA_CMD_MC, 0x00, &mc_data, 1,
-			       cfg->reply_timeout_ms, 0);
+	ret = la_send_and_wait(dev, LA_CMD_MC, 0x00, &mc_data, 1, cfg->reply_timeout_ms, 0);
 
 	k_mutex_unlock(&data->lock);
 	return ret;
@@ -531,9 +522,8 @@ int la_yinshi_init(const struct device *dev)
 	uart_irq_callback_user_data_set(cfg->uart_dev, la_uart_isr, (void *)dev);
 	uart_irq_rx_enable(cfg->uart_dev);
 
-	LOG_INF("%s: initialized (id=%d, uart=%s, rs485=%s)",
-		dev->name, cfg->id, cfg->uart_dev->name,
-		cfg->de_gpio.port ? "yes" : "no");
+	LOG_INF("%s: initialized (id=%d, uart=%s, rs485=%s)", dev->name, cfg->id,
+		cfg->uart_dev->name, cfg->de_gpio.port ? "yes" : "no");
 
 	return 0;
 }

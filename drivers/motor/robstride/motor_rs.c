@@ -288,8 +288,8 @@ static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 		data->RAWtorque = (frame->data[4] << 8) | (frame->data[5]);
 		data->RAWtemp = (frame->data[6] << 8) | (frame->data[7]);
 		if (!data->online) {
-			data->target_pos = uint16_to_float(data->RAWangle, -cfg->p_max,
-							   cfg->p_max, 16);
+			data->target_pos =
+				uint16_to_float(data->RAWangle, -cfg->p_max, cfg->p_max, 16);
 			data->online = true;
 		}
 	}
@@ -318,11 +318,10 @@ void rs_tx_data_handler(struct k_work *work)
 				}
 			}
 			rs_motor_pack(motor_devices[i], &tx_frame);
-			motor_can_sched_send_reply(
-				cfg->common.phy, &tx_frame,
-				(Communication_Type_MotorFeedback << 24) |
-					((cfg->common.tx_id & 0xFF) << 8),
-				0x1F00FF00, 5U, "rs-control");
+			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
+						   (Communication_Type_MotorFeedback << 24) |
+							   ((cfg->common.tx_id & 0xFF) << 8),
+						   0x1F00FF00, 5U, "rs-control");
 			data->missed_times++;
 		}
 	}
@@ -337,12 +336,9 @@ int rs_get(const struct device *dev, motor_status_t *status)
 		return -ENODEV;
 	}
 
-	data->common.angle = RAD2DEG * uint16_to_float(data->RAWangle, -cfg->p_max,
-						       cfg->p_max, 16);
-	data->common.rpm = RADPS2RPM(
-		uint16_to_float(data->RAWrpm, -cfg->v_max, cfg->v_max, 16));
-	data->common.torque =
-		uint16_to_float(data->RAWtorque, -cfg->t_max, cfg->t_max, 16);
+	data->common.angle = RAD2DEG * uint16_to_float(data->RAWangle, -cfg->p_max, cfg->p_max, 16);
+	data->common.rpm = RADPS2RPM(uint16_to_float(data->RAWrpm, -cfg->v_max, cfg->v_max, 16));
+	data->common.torque = uint16_to_float(data->RAWtorque, -cfg->t_max, cfg->t_max, 16);
 	data->common.temperature = ((float)(data->RAWtemp)) / 10.0f;
 
 	status->angle = data->common.angle;

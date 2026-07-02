@@ -288,7 +288,7 @@ static void dm_apply_controller_mode(const struct device *dev, enum motor_mode m
 		union {
 			float f;
 			uint32_t u;
-	} conv;
+		} conv;
 		conv.f = data->params.k_p;
 		dm_edit_reg_value(cfg->common.phy, cfg->common.tx_id, 0x19, conv.u);
 		conv.f = data->params.k_i;
@@ -319,7 +319,7 @@ int dm_set(const struct device *dev, motor_setpoint_t *status)
 
 	if (status->mode == MIT) {
 		data->common.target = MOTOR_TARGET_POSITION;
-		data->target_angle = status->angle/(RAD2DEG);
+		data->target_angle = status->angle / (RAD2DEG);
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
 		// data->params.k_p = 0;
@@ -413,8 +413,8 @@ void dm_tx_data_handler(struct k_work *work)
 		if (now - data->last_tx_time >= 1000 / cfg->freq) {
 			dm_motor_pack(motor_devices[i], &tx_frame);
 			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
-						   cfg->common.rx_id & 0xFF,
-						   CAN_STD_ID_MASK, 5U, "dm-control");
+						   cfg->common.rx_id & 0xFF, CAN_STD_ID_MASK, 5U,
+						   "dm-control");
 			data->last_tx_time = now;
 			data->tx_cnt++;
 		}

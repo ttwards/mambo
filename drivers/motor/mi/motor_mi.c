@@ -356,11 +356,10 @@ void mi_tx_data_handler(struct k_work *work)
 			}
 			mi_motor_pack(motor_devices[i], tx_frame);
 
-			motor_can_sched_send_reply(
-				cfg->common.phy, &tx_frame[0],
-				(Communication_Type_MotorFeedback << 24) |
-					((cfg->common.id & 0xFF) << 8),
-				0x1F00FF00, 5U, "mi-control");
+			motor_can_sched_send_reply(cfg->common.phy, &tx_frame[0],
+						   (Communication_Type_MotorFeedback << 24) |
+							   ((cfg->common.id & 0xFF) << 8),
+						   0x1F00FF00, 5U, "mi-control");
 
 			if ((data->common.mode == PV) || (data->common.mode == VO)) {
 				motor_can_sched_send_prio(cfg->common.phy, &tx_frame[1], true,
@@ -471,7 +470,8 @@ int mi_set(const struct device *dev, motor_setpoint_t *status)
 	}
 	if (status->mode == MIT) {
 		for (int i = 0; i < motor_get_controller_count(dev); i++) {
-			const struct motor_controller_config *ctrl_cfg = &cfg->common.controllers[i];
+			const struct motor_controller_config *ctrl_cfg =
+				&cfg->common.controllers[i];
 
 			if (ctrl_cfg->param_count == 0) {
 				break;

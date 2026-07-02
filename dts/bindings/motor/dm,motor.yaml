@@ -23,6 +23,9 @@ properties:
   controllers:
     type: phandles
     required: false
+  capabilities:
+    type: string-array
+    required: false
   v_max:
     type: string
   p_max:

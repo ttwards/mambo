@@ -77,7 +77,7 @@
 		.missed_times = 0,                                                                 \
 		.angle_offset = 0,                                                                 \
 		.position_error = 0,                                                               \
-		.target_torque_ff = 0,                                                            \
+		.target_torque_ff = 0,                                                             \
 	};
 
 #define CONFIG_GET_FOLLOW(node) DT_PHANDLE(node, follow)

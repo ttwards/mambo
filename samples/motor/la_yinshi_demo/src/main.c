@@ -44,11 +44,11 @@ static const struct device *const la_dev = DEVICE_DT_GET(LA_DEMO_NODE);
  * 2000 = fully extended
  *
  * Adjust these to match your gripper mechanics. */
-#define POS_OPEN     1400   /**< Open / release position */
-#define POS_GRASP    2000   /**< Grasp / close position */
-#define POS_MID      1700   /**< Midpoint for testing */
+#define POS_OPEN  1400 /**< Open / release position */
+#define POS_GRASP 2000 /**< Grasp / close position */
+#define POS_MID   1700 /**< Midpoint for testing */
 
-#define CYCLE_COUNT  3     /**< Number of open/close cycles */
+#define CYCLE_COUNT    3    /**< Number of open/close cycles */
 #define CYCLE_DELAY_MS 2000 /**< Delay between moves (ms) */
 
 /*---------------------------------------------------------------------------*
@@ -63,8 +63,8 @@ static void print_status(const struct la_status *s)
 	LOG_INF("  current:    %u mA", s->current_ma);
 	LOG_INF("  force:      %d g", s->force_grams);
 	LOG_INF("  faults:     0x%02x %s%s%s%s", s->faults,
-		(s->faults & LA_FAULT_STALL)       ? "[STALL] " : "",
-		(s->faults & LA_FAULT_OVERTEMP)    ? "[OVERTEMP] " : "",
+		(s->faults & LA_FAULT_STALL) ? "[STALL] " : "",
+		(s->faults & LA_FAULT_OVERTEMP) ? "[OVERTEMP] " : "",
 		(s->faults & LA_FAULT_OVERCURRENT) ? "[OVERCURRENT] " : "",
 		(s->faults & LA_FAULT_MOTOR_ERROR) ? "[MOTOR_ERR] " : "");
 	LOG_INF("  online:      %s", s->online ? "yes" : "no");

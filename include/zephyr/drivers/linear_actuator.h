@@ -37,24 +37,24 @@ extern "C" {
  * @brief Linear actuator status structure
  */
 struct la_status {
-	uint16_t target_pos;   /**< Target position (0~2000) */
-	int16_t  current_pos;  /**< Actual current position */
-	int8_t   temperature;  /**< Internal temperature in degrees Celsius */
-	uint16_t current_ma;   /**< Motor drive current in milliamps */
-	int16_t  force_grams;  /**< Force sensor value in grams (0 if no sensor) */
-	uint8_t  faults;       /**< Fault bitmask (LA_FAULT_*) */
-	bool     online;       /**< Device is online and communicating */
+	uint16_t target_pos; /**< Target position (0~2000) */
+	int16_t current_pos; /**< Actual current position */
+	int8_t temperature;  /**< Internal temperature in degrees Celsius */
+	uint16_t current_ma; /**< Motor drive current in milliamps */
+	int16_t force_grams; /**< Force sensor value in grams (0 if no sensor) */
+	uint8_t faults;      /**< Fault bitmask (LA_FAULT_*) */
+	bool online;         /**< Device is online and communicating */
 };
 
 /**
  * @brief Linear actuator command codes
  */
 enum la_cmd {
-	LA_CMD_ENABLE,       /**< Enable motor power output (work) */
-	LA_CMD_DISABLE,      /**< Emergency stop (disable motor output) */
-	LA_CMD_PAUSE,        /**< Pause (resume by sending position) */
-	LA_CMD_CLEAR_FAULT,  /**< Clear fault state */
-	LA_CMD_SAVE_PARAMS,  /**< Save current params to Flash (persist) */
+	LA_CMD_ENABLE,      /**< Enable motor power output (work) */
+	LA_CMD_DISABLE,     /**< Emergency stop (disable motor output) */
+	LA_CMD_PAUSE,       /**< Pause (resume by sending position) */
+	LA_CMD_CLEAR_FAULT, /**< Clear fault state */
+	LA_CMD_SAVE_PARAMS, /**< Save current params to Flash (persist) */
 };
 
 /**
@@ -90,9 +90,9 @@ typedef int (*la_api_set_param_t)(const struct device *dev, uint8_t index, uint1
  */
 __subsystem struct linear_actuator_driver_api {
 	la_api_set_position_t set_position;
-	la_api_get_status_t   get_status;
-	la_api_cmd_t          cmd;
-	la_api_set_param_t    set_param;
+	la_api_get_status_t get_status;
+	la_api_cmd_t cmd;
+	la_api_set_param_t set_param;
 };
 
 /**

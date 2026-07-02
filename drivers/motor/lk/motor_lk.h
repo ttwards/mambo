@@ -24,17 +24,17 @@
 #define LK_SET_PARAM        0xC1
 
 // 控制命令字节
-#define LK_CMD_TORQUE_LOOP    0xA1 // 转矩闭环
-#define LK_CMD_SPEED_LOOP     0xA2 // 速度闭环
-#define LK_CMD_POS_LOOP_MULTI 0xA4 // 多圈位置闭环2 (带限速)
+#define LK_CMD_TORQUE_LOOP     0xA1 // 转矩闭环
+#define LK_CMD_SPEED_LOOP      0xA2 // 速度闭环
+#define LK_CMD_POS_LOOP_MULTI  0xA4 // 多圈位置闭环2 (带限速)
 #define LK_PARAM_ANGLE_UPDATE  0x0A // 角度控制器参数更新
 #define LK_PARAM_SPEED_UPDATE  0x0B // 速度控制器参数更新
 #define LK_PARAM_TORQUE_UPDATE 0x0C // 转矩控制器参数更新
 // 单位转换因子
-#define LK_POS_FACTOR         100.0f  // 0.01 degree/LSB -> float * 100 = int
-#define LK_SPD_FACTOR_FINE    100.0f  // 0.01 dps/LSB (速度闭环控制值)
-#define LK_SPD_FACTOR_COARSE  1.0f    // 1 dps/LSB (位置模式下的限速值)
-#define LK_TORQUE_RAW_MAX     2048.0f // 转矩控制范围 -2048~2048
+#define LK_POS_FACTOR          100.0f  // 0.01 degree/LSB -> float * 100 = int
+#define LK_SPD_FACTOR_FINE     100.0f  // 0.01 dps/LSB (速度闭环控制值)
+#define LK_SPD_FACTOR_COARSE   1.0f    // 1 dps/LSB (位置模式下的限速值)
+#define LK_TORQUE_RAW_MAX      2048.0f // 转矩控制范围 -2048~2048
 
 #define SIZE_OF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
 
@@ -44,8 +44,8 @@
 #ifdef RAD2DEG
 #undef RAD2DEG
 #endif
-#define RAD2DEG             (180.0f / PI)
-#define RPM2DPS             6.0f // RPM 转 degree per second
+#define RAD2DEG (180.0f / PI)
+#define RPM2DPS 6.0f // RPM 转 degree per second
 
 enum CONTROL_MODE {
 	TORQUE_MODE = 0, // 对应 0xA1

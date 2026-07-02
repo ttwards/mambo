@@ -51,8 +51,8 @@ extern "C" {
 #define RAD2DEG(x) 57.2957795131f * x
 #endif
 
-#define MOTOR_CONTROLLER_ID_AUTO UINT8_MAX
-#define MOTOR_CONTROLLER_MAX     4
+#define MOTOR_CONTROLLER_ID_AUTO   UINT8_MAX
+#define MOTOR_CONTROLLER_MAX       4
 #define MOTOR_CONTROLLER_PARAM_MAX 2
 
 /**
@@ -141,8 +141,7 @@ typedef int (*motor_controller_update_t)(struct motor_controller_data *data,
 					 const struct motor_controller_input *input,
 					 struct motor_controller_output *output);
 typedef int (*motor_controller_get_params_t)(const struct motor_controller_config *cfg,
-					     uint8_t index,
-					     struct motor_controller_params *params);
+					     uint8_t index, struct motor_controller_params *params);
 typedef void (*motor_controller_reset_t)(struct motor_controller_data *data);
 
 struct motor_controller_api {
@@ -271,8 +270,8 @@ static inline float motor_controller_stage_update(struct motor_controller_stage_
 	if (data->prev_time == 0 || timestamp == 0) {
 		data->prev_time = timestamp;
 		data->err_prev = error;
-		output = isnan(params->k_p) ? params->output_offset :
-					      params->k_p * error + params->output_offset;
+		output = isnan(params->k_p) ? params->output_offset
+					    : params->k_p * error + params->output_offset;
 		if (params->output_limit != 0) {
 			output = motor_controller_clamp(output, -params->output_limit,
 							params->output_limit);
@@ -288,9 +287,9 @@ static inline float motor_controller_stage_update(struct motor_controller_stage_
 	if (!isnan(params->k_i)) {
 		data->err_integral += error * delta_us / 1000000.0f;
 		if (params->integral_limit != 0) {
-			data->err_integral = motor_controller_clamp(
-				data->err_integral, -params->integral_limit,
-				params->integral_limit);
+			data->err_integral =
+				motor_controller_clamp(data->err_integral, -params->integral_limit,
+						       params->integral_limit);
 		}
 	}
 
@@ -298,9 +297,8 @@ static inline float motor_controller_stage_update(struct motor_controller_stage_
 	if (isnan(params->detri_lpf)) {
 		data->err_derivate = raw_derivate;
 	} else {
-		data->err_derivate =
-			params->detri_lpf * data->err_derivate +
-			(1.0f - params->detri_lpf) * raw_derivate;
+		data->err_derivate = params->detri_lpf * data->err_derivate +
+				     (1.0f - params->detri_lpf) * raw_derivate;
 	}
 
 	output = params->output_offset;
@@ -314,8 +312,8 @@ static inline float motor_controller_stage_update(struct motor_controller_stage_
 		output += params->k_d * data->err_derivate;
 	}
 	if (params->output_limit != 0) {
-		output = motor_controller_clamp(output, -params->output_limit,
-						params->output_limit);
+		output =
+			motor_controller_clamp(output, -params->output_limit, params->output_limit);
 	}
 
 	data->err_prev = error;
@@ -346,21 +344,18 @@ static inline int motor_builtin_controller_update(struct motor_controller_data *
 		if (cfg->param_count < 2) {
 			return -EINVAL;
 		}
-		float position_error = input->has_position_error ?
-					       input->position_error :
-					       input->setpoint.angle - input->status.sum_angle;
+		float position_error = input->has_position_error
+					       ? input->position_error
+					       : input->setpoint.angle - input->status.sum_angle;
 
-		target_speed = motor_controller_stage_update(&data->stages[0],
-							     &cfg->params[0],
-							     position_error,
-							     input->timestamp);
+		target_speed = motor_controller_stage_update(&data->stages[0], &cfg->params[0],
+							     position_error, input->timestamp);
 		if (input->setpoint.speed_limit[0] < input->setpoint.speed_limit[1]) {
-			target_speed = motor_controller_clamp(target_speed,
-							     input->setpoint.speed_limit[0],
-							     input->setpoint.speed_limit[1]);
+			target_speed =
+				motor_controller_clamp(target_speed, input->setpoint.speed_limit[0],
+						       input->setpoint.speed_limit[1]);
 		}
-		target_torque = motor_controller_stage_update(&data->stages[1],
-							      &cfg->params[1],
+		target_torque = motor_controller_stage_update(&data->stages[1], &cfg->params[1],
 							      target_speed - input->status.rpm,
 							      input->timestamp);
 		target_torque += input->setpoint.torque;
@@ -374,11 +369,9 @@ static inline int motor_builtin_controller_update(struct motor_controller_data *
 		if (cfg->param_count < 1) {
 			return -EINVAL;
 		}
-		target_torque = motor_controller_stage_update(&data->stages[0],
-							      &cfg->params[0],
-							      input->setpoint.rpm -
-								      input->status.rpm,
-							      input->timestamp);
+		target_torque = motor_controller_stage_update(
+			&data->stages[0], &cfg->params[0], input->setpoint.rpm - input->status.rpm,
+			input->timestamp);
 		target_torque += input->setpoint.torque;
 		output->type = MOTOR_OUTPUT_TORQUE;
 		output->value = target_torque;
@@ -433,8 +426,7 @@ static inline int motor_controller_update(struct motor_controller_data *data,
 }
 
 static inline int motor_controller_get_params(const struct motor_controller_config *cfg,
-					      uint8_t index,
-					      struct motor_controller_params *params)
+					      uint8_t index, struct motor_controller_params *params)
 {
 	if (cfg == NULL || cfg->api == NULL || cfg->api->get_params == NULL) {
 		return -ENOSYS;
@@ -460,12 +452,13 @@ static inline void motor_controller_reset(struct motor_controller_data *data,
 	motor_set(dev, &(motor_setpoint_t){                                                        \
 			       .torque = _torque, .mode = VO, .target = MOTOR_TARGET_TORQUE})
 #define motor_set_speed(dev, _speed)                                                               \
-	motor_set(dev, &(motor_setpoint_t){                                                          \
-			       .rpm = _speed, .mode = VO, .target = MOTOR_TARGET_SPEED})
+	motor_set(dev, &(motor_setpoint_t){.rpm = _speed, .mode = VO, .target = MOTOR_TARGET_SPEED})
 #define motor_set_mit(dev, _speed, _angle, _torque)                                                \
-	motor_set(dev, &(motor_setpoint_t){                                                        \
-			       .rpm = _speed, .angle = _angle, .torque = _torque, .mode = MIT,       \
-			       .target = MOTOR_TARGET_POSITION})
+	motor_set(dev, &(motor_setpoint_t){.rpm = _speed,                                          \
+					   .angle = _angle,                                        \
+					   .torque = _torque,                                      \
+					   .mode = MIT,                                            \
+					   .target = MOTOR_TARGET_POSITION})
 
 #define motor_get_angle(dev)                                                                       \
 	({                                                                                         \
@@ -668,7 +661,7 @@ static inline int motor_resolve_controller(const struct device *dev, motor_setpo
 
 #define DT_GET_CANPHY(node_id) DEVICE_DT_GET(DT_PHANDLE(node_id, can_channel))
 
-#define MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, prop, fallback_prop, default_value)                \
+#define MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, prop, fallback_prop, default_value)               \
 	COND_CODE_1(DT_NODE_HAS_PROP(node_id, prop), (DT_STRING_UNQUOTED(node_id, prop)),          \
 		    (DT_STRING_UNQUOTED_OR(node_id, fallback_prop, default_value)))
 
@@ -676,36 +669,38 @@ static inline int motor_resolve_controller(const struct device *dev, motor_setpo
 				   offset_prop, i_fallback, out_fallback, lpf_fallback,            \
 				   offset_fallback)                                                \
 	{                                                                                          \
-		.k_p = DT_STRING_UNQUOTED_OR(node_id, kp_prop, 0),                                \
+		.k_p = DT_STRING_UNQUOTED_OR(node_id, kp_prop, 0),                                 \
 		.integral_limit = MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, i_prop, i_fallback, 0), \
-		.output_limit = MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, out_prop, out_fallback, 0), \
-		.detri_lpf = MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, lpf_prop, lpf_fallback, NAN), \
-		.k_i = DT_STRING_UNQUOTED_OR(node_id, ki_prop, NAN),                              \
-		.k_d = DT_STRING_UNQUOTED_OR(node_id, kd_prop, NAN),                              \
-		.output_offset = MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, offset_prop,             \
-								 offset_fallback, 0),                 \
+		.output_limit =                                                                    \
+			MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, out_prop, out_fallback, 0),       \
+		.detri_lpf =                                                                       \
+			MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, lpf_prop, lpf_fallback, NAN),     \
+		.k_i = DT_STRING_UNQUOTED_OR(node_id, ki_prop, NAN),                               \
+		.k_d = DT_STRING_UNQUOTED_OR(node_id, kd_prop, NAN),                               \
+		.output_offset =                                                                   \
+			MOTOR_DT_CONTROLLER_PARAM_VALUE(node_id, offset_prop, offset_fallback, 0), \
 	}
 
-#define MOTOR_DT_SINGLE_CONTROLLER_PARAMS(node_id)                                                  \
-	MOTOR_DT_CONTROLLER_PARAMS(node_id, k_p, k_i, k_d, i_max, out_max, detri_lpf, offset,       \
+#define MOTOR_DT_SINGLE_CONTROLLER_PARAMS(node_id)                                                 \
+	MOTOR_DT_CONTROLLER_PARAMS(node_id, k_p, k_i, k_d, i_max, out_max, detri_lpf, offset,      \
 				   i_max, out_max, detri_lpf, offset)
 
-#define MOTOR_DT_PV_CONTROLLER_PARAMS(node_id)                                                      \
-	MOTOR_DT_CONTROLLER_PARAMS(node_id, pos_k_p, pos_k_i, pos_k_d, pos_i_max, pos_out_max,      \
-				   pos_detri_lpf, pos_offset, i_max, out_max, detri_lpf, offset),   \
-		MOTOR_DT_CONTROLLER_PARAMS(node_id, vel_k_p, vel_k_i, vel_k_d, vel_i_max,           \
-					   vel_out_max, vel_detri_lpf, vel_offset, i_max, out_max,      \
+#define MOTOR_DT_PV_CONTROLLER_PARAMS(node_id)                                                     \
+	MOTOR_DT_CONTROLLER_PARAMS(node_id, pos_k_p, pos_k_i, pos_k_d, pos_i_max, pos_out_max,     \
+				   pos_detri_lpf, pos_offset, i_max, out_max, detri_lpf, offset),  \
+		MOTOR_DT_CONTROLLER_PARAMS(node_id, vel_k_p, vel_k_i, vel_k_d, vel_i_max,          \
+					   vel_out_max, vel_detri_lpf, vel_offset, i_max, out_max, \
 					   detri_lpf, offset)
 
-#define MOTOR_DT_MIT_CONTROLLER_PARAMS(node_id)                                                     \
+#define MOTOR_DT_MIT_CONTROLLER_PARAMS(node_id)                                                    \
 	{                                                                                          \
-		.k_p = DT_STRING_UNQUOTED_OR(node_id, k_p, 0),                                   \
-		.integral_limit = DT_STRING_UNQUOTED_OR(node_id, i_max, 0),                       \
-		.output_limit = DT_STRING_UNQUOTED_OR(node_id, out_max, 0),                       \
-		.detri_lpf = DT_STRING_UNQUOTED_OR(node_id, detri_lpf, NAN),                      \
-		.k_i = DT_STRING_UNQUOTED_OR(node_id, k_i, NAN),                                  \
-		.k_d = DT_STRING_UNQUOTED_OR(node_id, k_d, NAN),                                  \
-		.output_offset = DT_STRING_UNQUOTED_OR(node_id, offset, 0),                       \
+		.k_p = DT_STRING_UNQUOTED_OR(node_id, k_p, 0),                                     \
+		.integral_limit = DT_STRING_UNQUOTED_OR(node_id, i_max, 0),                        \
+		.output_limit = DT_STRING_UNQUOTED_OR(node_id, out_max, 0),                        \
+		.detri_lpf = DT_STRING_UNQUOTED_OR(node_id, detri_lpf, NAN),                       \
+		.k_i = DT_STRING_UNQUOTED_OR(node_id, k_i, NAN),                                   \
+		.k_d = DT_STRING_UNQUOTED_OR(node_id, k_d, NAN),                                   \
+		.output_offset = DT_STRING_UNQUOTED_OR(node_id, offset, 0),                        \
 	}
 
 #define MOTOR_DT_CONTROLLER_MODE(node_id)                                                          \
@@ -729,11 +724,11 @@ static inline int motor_resolve_controller(const struct device *dev, motor_setpo
 					      (MOTOR_STATE_SPEED), (MOTOR_STATE_TORQUE))),              \
 				 (0))))
 
-#define MOTOR_DT_CONTROLLER_PARAM_COUNT(node_id)                                                    \
+#define MOTOR_DT_CONTROLLER_PARAM_COUNT(node_id)                                                   \
 	COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, motor_controller_pv), (2),                        \
 		    (COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, motor_controller_mit), (1), (1))))
 
-#define MOTOR_DT_CONTROLLER_PARAM_CONFIGS(node_id)                                                  \
+#define MOTOR_DT_CONTROLLER_PARAM_CONFIGS(node_id)                                                 \
 	COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, motor_controller_pv),                             \
 		    (MOTOR_DT_PV_CONTROLLER_PARAMS(node_id)),                                       \
 		    (COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, motor_controller_mit),                  \
@@ -744,18 +739,20 @@ static inline int motor_resolve_controller(const struct device *dev, motor_setpo
 	{                                                                                          \
 		.info =                                                                            \
 			{                                                                          \
-				.id = idx,                                                        \
-				.mode = MOTOR_DT_CONTROLLER_MODE(DT_PROP_BY_IDX(node_id, prop, idx)), \
-				.target = MOTOR_DT_CONTROLLER_TARGET(                            \
-					DT_PROP_BY_IDX(node_id, prop, idx)),                     \
-				.output = MOTOR_DT_CONTROLLER_OUTPUT(                            \
-					DT_PROP_BY_IDX(node_id, prop, idx)),                     \
-				.required_states = MOTOR_DT_CONTROLLER_REQUIRED_STATES(           \
-					DT_PROP_BY_IDX(node_id, prop, idx)),                     \
-				.name = DT_NODE_FULL_NAME(DT_PROP_BY_IDX(node_id, prop, idx)),    \
+				.id = idx,                                                         \
+				.mode = MOTOR_DT_CONTROLLER_MODE(                                  \
+					DT_PROP_BY_IDX(node_id, prop, idx)),                       \
+				.target = MOTOR_DT_CONTROLLER_TARGET(                              \
+					DT_PROP_BY_IDX(node_id, prop, idx)),                       \
+				.output = MOTOR_DT_CONTROLLER_OUTPUT(                              \
+					DT_PROP_BY_IDX(node_id, prop, idx)),                       \
+				.required_states = MOTOR_DT_CONTROLLER_REQUIRED_STATES(            \
+					DT_PROP_BY_IDX(node_id, prop, idx)),                       \
+				.name = DT_NODE_FULL_NAME(DT_PROP_BY_IDX(node_id, prop, idx)),     \
 			},                                                                         \
-		.api = &motor_builtin_controller_api,                                             \
-		.param_count = MOTOR_DT_CONTROLLER_PARAM_COUNT(DT_PROP_BY_IDX(node_id, prop, idx)), \
+		.api = &motor_builtin_controller_api,                                              \
+		.param_count =                                                                     \
+			MOTOR_DT_CONTROLLER_PARAM_COUNT(DT_PROP_BY_IDX(node_id, prop, idx)),       \
 		.params = {MOTOR_DT_CONTROLLER_PARAM_CONFIGS(DT_PROP_BY_IDX(node_id, prop, idx))}, \
 	}
 
@@ -772,7 +769,7 @@ static inline int motor_resolve_controller(const struct device *dev, motor_setpo
 		.tx_id = DT_PROP_OR(node_id, tx_id, 0x00),                                         \
 		.rx_id = DT_PROP_OR(node_id, rx_id, 0x00),                                         \
 		.controllers = {MOTOR_DT_CONTROLLER_CONFIGS(node_id)},                             \
-		}
+	}
 
 #define MOTOR_DT_DRIVER_DATA_GET(node_id)                                                          \
 	{                                                                                          \

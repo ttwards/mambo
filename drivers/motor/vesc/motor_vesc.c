@@ -122,9 +122,11 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
 					vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
 				} else {
-					vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
+					vel_tmp =
+						(int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
 				}
-				vel_tmp = vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
+				vel_tmp =
+					vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
 				frame->data[0] = (vel_tmp >> 24) & 0xFF;
 				frame->data[1] = (vel_tmp >> 16) & 0xFF;
 				frame->data[2] = (vel_tmp >> 8) & 0xFF;
@@ -135,19 +137,19 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 			if (data->common.target != MOTOR_TARGET_POSITION) {
 				break;
 			}
-				vesc_can_id->msg_type = CAN_PACKET_SET_POS;
-				if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
-					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
-					data->target_angle = cfg->p_max * VESC_RAD_PER_DEG;
-				} else if (data->target_angle < (-cfg->p_max * VESC_RAD_PER_DEG)) {
-					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
-					data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
-				}
-				pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
-				frame->data[0] = (pos_tmp >> 24) & 0xFF;
-				frame->data[1] = (pos_tmp >> 16) & 0xFF;
-				frame->data[2] = (pos_tmp >> 8) & 0xFF;
-				frame->data[3] = pos_tmp & 0xFF;
+			vesc_can_id->msg_type = CAN_PACKET_SET_POS;
+			if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
+				motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+				data->target_angle = cfg->p_max * VESC_RAD_PER_DEG;
+			} else if (data->target_angle < (-cfg->p_max * VESC_RAD_PER_DEG)) {
+				motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
+				data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
+			}
+			pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
+			frame->data[0] = (pos_tmp >> 24) & 0xFF;
+			frame->data[1] = (pos_tmp >> 16) & 0xFF;
+			frame->data[2] = (pos_tmp >> 8) & 0xFF;
+			frame->data[3] = pos_tmp & 0xFF;
 			break;
 		default:
 			break;

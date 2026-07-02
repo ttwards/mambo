@@ -234,8 +234,7 @@ int lk_set(const struct device *dev, motor_setpoint_t *status)
 		int controller_param_idx = -1;
 
 		// 0->Angle, 1->Speed, 2->Torque
-		if (ctrl_cfg->info.mode == PV &&
-		    ctrl_cfg->info.target == MOTOR_TARGET_POSITION) {
+		if (ctrl_cfg->info.mode == PV && ctrl_cfg->info.target == MOTOR_TARGET_POSITION) {
 			controller_param_idx = 0;
 		} else if (ctrl_cfg->info.mode == VO &&
 			   ctrl_cfg->info.target == MOTOR_TARGET_SPEED) {
@@ -394,8 +393,8 @@ void lk_tx_data_handler(struct k_work *work)
 			}
 			lk_motor_pack(motor_devices[i], &tx_frame);
 			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
-						   LK_CMD_ID_BASE + cfg->id, CAN_STD_ID_MASK,
-						   5U, "lk-control");
+						   LK_CMD_ID_BASE + cfg->id, CAN_STD_ID_MASK, 5U,
+						   "lk-control");
 		}
 		// if (i % 2 == 1) {
 		//     k_usleep(500);
@@ -409,8 +408,7 @@ void lk_tx_params_data_handler(struct k_work *work)
 	for (int i = 0; i < MOTOR_COUNT; i++) {
 		struct lk_motor_data *data = motor_devices[i]->data;
 		const struct lk_motor_cfg *cfg = motor_devices[i]->config;
-		if (data->params_update[0] || data->params_update[1] ||
-		    data->params_update[2]) {
+		if (data->params_update[0] || data->params_update[1] || data->params_update[2]) {
 			tx_frame.id = LK_CMD_ID_BASE + cfg->id; // 0x160 + ID
 			tx_frame.dlc = 8;
 			tx_frame.flags = 0; // 标准帧

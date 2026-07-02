@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-import rclpy
-from rclpy.node import Node
-from geometry_msgs.msg import Twist
-from std_msgs.msg import Float32, Float32MultiArray, Int32
+import collections
 import math
 from enum import Enum
-import collections
+
+import rclpy
+from geometry_msgs.msg import Twist
+from rclpy.node import Node
+from std_msgs.msg import Float32, Float32MultiArray, Int32
+
 
 # 定义系统状态机
 class State(Enum):
@@ -31,15 +33,16 @@ class Direction(Enum):
     RIGHT = 2
     BACKWARD = 3
 
+
 class SuspensionController(Node):
     def __init__(self):
-        super().__init__('suspension_controller')
+        super().__init__("suspension_controller")
 
         # --- 参数配置 ---
-        self.H_LIFT_LOW = 205.0   # 台阶高度1
+        self.H_LIFT_LOW = 205.0  # 台阶高度1
         self.H_LIFT_HIGH = 400.0  # 台阶高度2
-        self.H_INIT = 30.0        # 初始/常规运动姿态高度
-        self.CREEP_SPEED = 0.2   # 安全蠕行速度 (m/s)
+        self.H_INIT = 30.0  # 初始/常规运动姿态高度
+        self.CREEP_SPEED = 0.2  # 安全蠕行速度 (m/s)
         self.HEIGHT_TOLERANCE = 20.0
 
         self.control_by_sbus = False
@@ -91,7 +94,9 @@ class SuspensionController(Node):
 
         # --- 滤波器初始化 ---
         self.distance_buffers = [collections.deque(maxlen=5) for _ in range(8)]
-        self.pe_debounce_counters = [0] * 4  # 用于 10ms 防抖 (主频 100Hz 下 1 帧 = 10ms)
+        self.pe_debounce_counters = [
+            0
+        ] * 4  # 用于 10ms 防抖 (主频 100Hz 下 1 帧 = 10ms)
         self.pe_last_states = [0] * 4
 
         # 初始化高度锁存标志位
@@ -102,13 +107,21 @@ class SuspensionController(Node):
         self._stable_counters = collections.defaultdict(int)
 
         # --- ROS 2 接口 ---
-        self.sub_direction = self.create_subscription(Int32, 'direction', self.direction_cb, 10)
-        self.sub_cmd_vel = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 10)
-        self.sub_sensor_dist = self.create_subscription(Float32MultiArray, 'sensor_distances', self.dist_cb, 10)
-        self.sub_r0x0121 = self.create_subscription(Float32MultiArray, 'r0x0121', self.hw_status_cb, 10)
-        self.pub_action = self.create_publisher(Float32MultiArray, 't0x0111_action', 10)
-        self.pub_chassis_vel = self.create_publisher(Twist, 'cmd_vel_chassis', 10)
-        self.pub_state = self.create_publisher(Int32, 'current_state', 10)
+        self.sub_direction = self.create_subscription(
+            Int32, "direction", self.direction_cb, 10
+        )
+        self.sub_cmd_vel = self.create_subscription(
+            Twist, "cmd_vel", self.cmd_vel_cb, 10
+        )
+        self.sub_sensor_dist = self.create_subscription(
+            Float32MultiArray, "sensor_distances", self.dist_cb, 10
+        )
+        self.sub_r0x0121 = self.create_subscription(
+            Float32MultiArray, "r0x0121", self.hw_status_cb, 10
+        )
+        self.pub_action = self.create_publisher(Float32MultiArray, "t0x0111_action", 10)
+        self.pub_chassis_vel = self.create_publisher(Twist, "cmd_vel_chassis", 10)
+        self.pub_state = self.create_publisher(Int32, "current_state", 10)
         # 控制主循环 (100Hz)
         self.delay_timer = self.create_timer(0.2, self.start_control_loop)
         self.get_logger().info("Step Climber Node Initialized.")
@@ -142,7 +155,6 @@ class SuspensionController(Node):
             self._stable_counters[key] = 0
 
         return False
-
 
     def direction_cb(self, msg):
         if self.current_state != State.IDLE:
@@ -198,14 +210,18 @@ class SuspensionController(Node):
     def target_yaw_cb(self, msg):
         target_yaw_deg = float(msg.data)
         self.target_relative_yaw = math.radians(target_yaw_deg)
-        self.get_logger().info(f"Target relative yaw updated to {target_yaw_deg:.2f} deg")
+        self.get_logger().info(
+            f"Target relative yaw updated to {target_yaw_deg:.2f} deg"
+        )
 
     def yaw_correction(self):
         if not self.yaw_correction_enabled or not self.has_imu_yaw:
             return 0.0
 
         yaw_error = self.target_relative_yaw - self.relative_yaw
-        angular_correction = self.YAW_KP * yaw_error - self.YAW_KD * self.relative_yaw_rate
+        angular_correction = (
+            self.YAW_KP * yaw_error - self.YAW_KD * self.relative_yaw_rate
+        )
 
         if abs(yaw_error) < self.YAW_TOLERANCE:
             angular_correction = 0.0
@@ -242,7 +258,6 @@ class SuspensionController(Node):
             f"cmd_z={angular_correction:.3f}"
         )
 
-
     def cmd_vel_cb(self, msg):
         self.raw_cmd_vel = msg
 
@@ -250,7 +265,9 @@ class SuspensionController(Node):
         if len(msg.data) >= 8:
             for i in range(8):
                 self.distance_buffers[i].append(msg.data[i])
-                self.distance_filtered[i] = sum(self.distance_buffers[i]) / len(self.distance_buffers[i])
+                self.distance_filtered[i] = sum(self.distance_buffers[i]) / len(
+                    self.distance_buffers[i]
+                )
 
     def hw_status_cb(self, msg):
         # r0x0121: [PE_0, PE_1, PE_2, PE_3, H_0, H_1, H_2, H_3]
@@ -260,7 +277,7 @@ class SuspensionController(Node):
                 # 10ms (1 frame) 防抖逻辑
                 if current_pe != self.pe_last_states[i]:
                     self.pe_debounce_counters[i] += 1
-                    if self.pe_debounce_counters[i] >= 2: # 连续1次跳变(10ms)确认
+                    if self.pe_debounce_counters[i] >= 2:  # 连续1次跳变(10ms)确认
                         self.pe_switches_filtered[i] = current_pe
                         self.pe_last_states[i] = current_pe
                         self.pe_debounce_counters[i] = 0
@@ -285,7 +302,7 @@ class SuspensionController(Node):
     def update_virtual_mapping(self):
         """根据行驶方向，将物理轮/传感器映射为虚拟的 0, 1, 2, 3"""
         if self.current_direction == Direction.FORWARD:
-            self.v_wheels_idx = [2, 1, 0, 3] # [0, 1, 2, 3]
+            self.v_wheels_idx = [2, 1, 0, 3]  # [0, 1, 2, 3]
             self.v_pe_idx = [0, 1, 3, 2]
             self.v_distances_idx = [0, 1, 5, 4]
         elif self.current_direction == Direction.LEFT:
@@ -317,7 +334,13 @@ class SuspensionController(Node):
 
         msg = []
         msg.extend(self.wheel_heights_target)
-        msg.extend([self.chassis_cmd_vel.linear.x, self.chassis_cmd_vel.linear.y, target_yaw_deg])
+        msg.extend(
+            [
+                self.chassis_cmd_vel.linear.x,
+                self.chassis_cmd_vel.linear.y,
+                target_yaw_deg,
+            ]
+        )
         ros_msg = Float32MultiArray()
         ros_msg.data = msg
         self.pub_action.publish(ros_msg)
@@ -336,22 +359,22 @@ class SuspensionController(Node):
 
         if state == State.IDLE:
 
-
-
             cond_up = self._get_v_distance(1) < 200
             cond_down = self._get_v_distance(0) > 200
 
-            if self._is_stable(cond_up, 'idle_to_up'):
+            if self._is_stable(cond_up, "idle_to_up"):
                 self.current_state = State.UP_1_PREPARE
-            elif self._is_stable(cond_down, 'idle_to_down'):
+            elif self._is_stable(cond_down, "idle_to_down"):
                 self.current_state = State.DOWN_1_PREPARE
 
         # ================= 上台阶逻辑 =================
         elif state == State.UP_1_PREPARE:
             self.target_height = self.H_LIFT_LOW
             self.wheel_heights_target = [self.target_height] * 4
-            cond_height = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
-            if self._is_stable(cond_height, 'up1_height', threshold=2):
+            cond_height = self.check_height_reached(
+                [v_0, v_1, v_2, v_3], self.target_height
+            )
+            if self._is_stable(cond_height, "up1_height", threshold=2):
                 self.current_state = State.UP_2_LIFT
 
         elif state == State.UP_2_LIFT:
@@ -359,69 +382,73 @@ class SuspensionController(Node):
             cond_high_dist = self._get_v_distance(1) < 200
 
             # 分支 1：确实是高台阶，继续升
-            if self._is_stable(cond_high_dist, 'up2_high_dist'):
+            if self._is_stable(cond_high_dist, "up2_high_dist"):
                 self.target_height = self.H_LIFT_HIGH
                 self.wheel_heights_target = [self.target_height] * 4
-                cond_height = self.check_height_reached([v_0, v_1, v_2, v_3], self.target_height)
-                if self._is_stable(cond_height, 'up2_height', threshold=2):
+                cond_height = self.check_height_reached(
+                    [v_0, v_1, v_2, v_3], self.target_height
+                )
+                if self._is_stable(cond_height, "up2_height", threshold=2):
                     self.current_state = State.UP_3_FRONT_DOCK
             # 分支 2：并非高台阶，防抖确认后直接进入搭接阶段
-            elif self._is_stable(not cond_high_dist, 'up2_low_dist'):
+            elif self._is_stable(not cond_high_dist, "up2_low_dist"):
                 self.current_state = State.UP_3_FRONT_DOCK
 
         elif state == State.UP_3_FRONT_DOCK:
             self._creep_forward()
             cond_dist = self._get_v_distance(0) < 80.0
-            if self._is_stable(cond_dist, 'up3_dist'):
+            if self._is_stable(cond_dist, "up3_dist"):
                 self.current_state = State.UP_4_RETRACT_FRONT
 
         elif state == State.UP_4_RETRACT_FRONT:
             self._stop_chassis()
             self._set_v_wheel_height([v_0, v_1], 5.0)
             cond_height = self.check_height_reached([v_0, v_1], 5.0)
-            if self._is_stable(cond_height, 'up4_height', threshold=2):
+            if self._is_stable(cond_height, "up4_height", threshold=2):
                 self.current_state = State.UP_5_FRONT_LAND
 
         elif state == State.UP_5_FRONT_LAND:
             self._creep_forward()
 
-            cond_pe = (self._get_v_pe(v_0) == 1 )
+            cond_pe = self._get_v_pe(v_0) == 1
 
-            if self._is_stable(cond_pe, 'up5_pe'):
+            if self._is_stable(cond_pe, "up5_pe"):
                 self._stop_chassis()
                 self._set_v_wheel_height([v_0, v_1], 35.0)
                 self._set_v_wheel_height([v_2, v_3], self.target_height + 3.0)
 
-                cond_height = self.check_height_reached([v_2, v_3], self.target_height + 3.0)
-                if self._is_stable(cond_height, 'up5_height', threshold=2):
+                cond_height = self.check_height_reached(
+                    [v_2, v_3], self.target_height + 3.0
+                )
+                if self._is_stable(cond_height, "up5_height", threshold=2):
                     self.current_state = State.UP_6_SIDE_DOCK_RETRACT_REAR
 
         elif state == State.UP_6_SIDE_DOCK_RETRACT_REAR:
             self._creep_forward()
-            cond_pe = (self._get_v_pe(v_2) == 1)
-            if self._is_stable(cond_pe, 'up6_pe', threshold=20):
+            cond_pe = self._get_v_pe(v_2) == 1
+            if self._is_stable(cond_pe, "up6_pe", threshold=20):
                 self._stop_chassis()
                 self._set_v_wheel_height([v_2, v_3], 0.0)
 
                 cond_height = self.check_height_reached([v_2, v_3], 0.0)
-                if self._is_stable(cond_height, 'up6_height', threshold=2):
+                if self._is_stable(cond_height, "up6_height", threshold=2):
                     self.current_state = State.UP_7_REAR_LAND
 
         elif state == State.UP_7_REAR_LAND:
             self._creep_forward()
-            cond_pe = (self._get_v_pe(v_2) == 1 and self._get_v_pe(v_3) == 1)
+            cond_pe = self._get_v_pe(v_2) == 1 and self._get_v_pe(v_3) == 1
 
-            if self._is_stable(cond_pe, 'up7_pe'):
+            if self._is_stable(cond_pe, "up7_pe"):
                 self._set_v_wheel_height([v_2, v_3], 3.0)
                 cond_height = self.check_height_reached([v_2, v_3], 3.0)
-                if self._is_stable(cond_height, 'up7_height', threshold=2):
+                if self._is_stable(cond_height, "up7_height", threshold=2):
                     self.current_state = State.UP_8_RECOVER
 
         elif state == State.UP_8_RECOVER:
             self._stop_chassis()
             self.wheel_heights_target = [self.H_INIT] * 4
             cond_height = self.check_height_reached([v_0, v_1, v_2, v_3], self.H_INIT)
-            if self._is_stable(cond_height, 'up8_height', threshold=2):
+            if self._is_stable(cond_height, "up8_height", threshold=2):
                 self.get_logger().info("Up step sequence complete.")
                 self.current_state = State.IDLE
 
@@ -429,7 +456,7 @@ class SuspensionController(Node):
         elif state == State.DOWN_1_PREPARE:
             cond_pe = self._get_v_pe(v_0) == 0
 
-            if self._is_stable(cond_pe, 'down1_pe'):
+            if self._is_stable(cond_pe, "down1_pe"):
                 self._stop_chassis()
 
                 if not self._height_latched:
@@ -444,8 +471,10 @@ class SuspensionController(Node):
 
                 self._set_v_wheel_height([v_0, v_1], self.target_height + 30.0)
 
-                cond_height = self.check_height_reached([v_0, v_1], self.target_height + 10.0)
-                if self._is_stable(cond_height, 'down1_height', threshold=2):
+                cond_height = self.check_height_reached(
+                    [v_0, v_1], self.target_height + 10.0
+                )
+                if self._is_stable(cond_height, "down1_height", threshold=2):
                     self._height_latched = False
                     self.current_state = State.DOWN_2_FRONT_HOVER_LAND
             else:
@@ -455,19 +484,19 @@ class SuspensionController(Node):
             self._creep_forward()
             cond_pe = self._get_v_pe(v_3) == 0
 
-            if self._is_stable(cond_pe, 'down2_pe'):
+            if self._is_stable(cond_pe, "down2_pe"):
                 self._stop_chassis()
                 self._set_v_wheel_height([v_2, v_3], self.target_height + 10.0)
 
                 cond_height = self.check_height_reached([v_2, v_3], self.target_height)
-                if self._is_stable(cond_height, 'down2_height', threshold=2):
+                if self._is_stable(cond_height, "down2_height", threshold=2):
                     self.current_state = State.DOWN_3_REAR_HOVER_LAND
 
         elif state == State.DOWN_3_REAR_HOVER_LAND:
             self._creep_forward()
             cond_dist = self._get_v_distance(3) > 200.0
 
-            if self._is_stable(cond_dist, 'down3_dist'):
+            if self._is_stable(cond_dist, "down3_dist"):
                 self.wheel_heights_target = [self.H_INIT] * 4
                 self.current_state = State.DOWN_4_RECOVERY
 
@@ -475,7 +504,7 @@ class SuspensionController(Node):
             self._creep_forward()
             cond_height = self.check_height_reached([v_0, v_1, v_2, v_3], self.H_INIT)
 
-            if self._is_stable(cond_height, 'down4_height', threshold=2):
+            if self._is_stable(cond_height, "down4_height", threshold=2):
                 self.get_logger().info("Down step sequence complete.")
                 self.current_state = State.IDLE
 
@@ -521,6 +550,7 @@ class SuspensionController(Node):
             angle += 2 * math.pi
         return angle
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = SuspensionController()
@@ -532,5 +562,6 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

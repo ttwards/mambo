@@ -279,7 +279,7 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 			frame.data[1] = (cfg->common.rx_id - 0x200) >> 8;
 			frame.data[2] = 0x55;
 			frame.data[3] = 0x3C;
-				motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-set-zero");
+			motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-set-zero");
 		}
 		break;
 	case CLEAR_CONTROLLER:
@@ -295,7 +295,7 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 			frame.data[1] = (cfg->common.rx_id - 0x200) >> 8;
 			frame.data[2] = 0x55;
 			frame.data[3] = 0x50;
-				motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-clear-error");
+			motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-clear-error");
 		}
 		break;
 	}
@@ -347,9 +347,9 @@ int dji_init(const struct device *dev)
 		} else {
 			data->ctrl_struct->mask[frame_id] |= 1 << id;
 		}
-			if (data->ctrl_struct->rx_ids[id]) {
-				motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
-			}
+		if (data->ctrl_struct->rx_ids[id]) {
+			motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
+		}
 		data->ctrl_struct->rx_ids[id] = cfg->common.rx_id;
 
 		data->ctrl_struct->full_handle.handler = dji_tx_handler;
@@ -367,9 +367,9 @@ int dji_init(const struct device *dev)
 			data->convert_num = M2006_CONVERT_NUM;
 		} else if (cfg->is_dm_motor) {
 			data->convert_num = DM_MOTOR_CONVERT_NUM;
-			} else {
-				motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
-			}
+		} else {
+			motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
+		}
 
 		if (!device_is_ready(cfg->common.phy)) {
 			return -1;
@@ -411,11 +411,11 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 			    ((const struct dji_motor_config *)motor_cfg->follow->config)
 				    ->common.phy) {
 			data->ctrl_struct->mask[frame_id] |= 1 << motor_id(motor_cfg->follow);
-			} else {
-				data->ctrl_struct->mask[frame_id] |= 1 << id;
-			}
-			motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
-		} else if (data->missed_times > 0) {
+		} else {
+			data->ctrl_struct->mask[frame_id] |= 1 << id;
+		}
+		motor_stats_inc(MOTOR_STAT_DRIVER_ERROR);
+	} else if (data->missed_times > 0) {
 		data->missed_times--;
 	}
 
@@ -596,24 +596,28 @@ static void motor_calc(const struct device *dev)
 
 	const struct motor_controller_config *ctrl_cfg =
 		&config->common.controllers[data->current_mode_index];
-	struct motor_controller_data *ctrl_data = &data->common.controllers[data->current_mode_index];
+	struct motor_controller_data *ctrl_data =
+		&data->common.controllers[data->current_mode_index];
 	struct motor_controller_input input = {
-		.status = {
-			.angle = data->common.angle,
-			.rpm = data->common.rpm,
-			.torque = data->common.torque,
-			.sum_angle = data->common.sum_angle,
-		},
-		.setpoint = {
-			.angle = data->target_angle,
-			.rpm = data->target_rpm,
-			.torque = data->target_torque_ff,
-			.speed_limit = {data->common.speed_limit[0], data->common.speed_limit[1]},
-			.torque_limit = {data->common.torque_limit[0],
-					 data->common.torque_limit[1]},
-			.mode = data->common.mode,
-			.target = data->common.target,
-		},
+		.status =
+			{
+				.angle = data->common.angle,
+				.rpm = data->common.rpm,
+				.torque = data->common.torque,
+				.sum_angle = data->common.sum_angle,
+			},
+		.setpoint =
+			{
+				.angle = data->target_angle,
+				.rpm = data->target_rpm,
+				.torque = data->target_torque_ff,
+				.speed_limit = {data->common.speed_limit[0],
+						data->common.speed_limit[1]},
+				.torque_limit = {data->common.torque_limit[0],
+						 data->common.torque_limit[1]},
+				.mode = data->common.mode,
+				.target = data->common.target,
+			},
 		.position_error = data->position_error,
 		.has_position_error = true,
 		.timestamp = data->curr_time,
@@ -636,9 +640,9 @@ torque2current:
 		data->target_current = data->target_torque / config->gear_ratio *
 				       convert[data->convert_num][TORQUE2CURRENT];
 	} else {
-		data->target_current = data->target_torque * 16384.0f /
-				       (config->dm_torque_ratio * config->dm_i_max *
-					config->gear_ratio);
+		data->target_current =
+			data->target_torque * 16384.0f /
+			(config->dm_torque_ratio * config->dm_i_max * config->gear_ratio);
 	}
 	k_spin_unlock(&data->data_input_lock, key);
 }
@@ -678,12 +682,12 @@ void dji_init_handler(struct k_work *work)
 				.mask = 0x7FF,
 				.flags = 0,
 			};
-				int err = can_add_rx_filter(cfg->common.phy, can_rx_callback,
-							    (void *)motor_devices[i], &filter);
-				if (err < 0) {
-					motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
-				}
+			int err = can_add_rx_filter(cfg->common.phy, can_rx_callback,
+						    (void *)motor_devices[i], &filter);
+			if (err < 0) {
+				motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 			}
+		}
 	}
 	dji_miss_handle_timer.expiry_fn = dji_miss_isr_handler;
 	k_timer_start(&dji_miss_handle_timer, K_NO_WAIT, K_MSEC(4));
@@ -722,15 +726,15 @@ void dji_tx_handler(struct k_work *work)
 					packed = true;
 				}
 			}
-				if (packed) {
-					txframe.id = index_to_frameID(i);
-					txframe.dlc = 8;
-					txframe.flags = 0;
-					const struct device *can_dev = ctrl_struct->can_dev;
-					motor_can_sched_send_prio(can_dev, &txframe, true,
-								  "dji-feedback-control");
-				}
+			if (packed) {
+				txframe.id = index_to_frameID(i);
+				txframe.dlc = 8;
+				txframe.flags = 0;
+				const struct device *can_dev = ctrl_struct->can_dev;
+				motor_can_sched_send_prio(can_dev, &txframe, true,
+							  "dji-feedback-control");
 			}
+		}
 	}
 }
 

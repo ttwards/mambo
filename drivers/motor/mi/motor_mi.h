@@ -49,18 +49,18 @@
 #ifdef RAD2DEG
 #undef RAD2DEG
 #endif
-#define RAD2DEG                (180.0f / PI)
+#define RAD2DEG       (180.0f / PI)
 // 参数读取宏定义
-#define Run_mode               0x7005
-#define Iq_Ref                 0x7006
-#define Spd_Ref                0x700A
-#define Limit_Torque           0x700B
-#define Cur_Kp                 0x7010
-#define Cur_Ki                 0x7011
-#define Cur_Filt_Gain          0x7014
-#define Loc_Ref                0x7016
-#define Limit_Spd              0x7017
-#define Limit_Cur              0x7018
+#define Run_mode      0x7005
+#define Iq_Ref        0x7006
+#define Spd_Ref       0x700A
+#define Limit_Torque  0x700B
+#define Cur_Kp        0x7010
+#define Cur_Ki        0x7011
+#define Cur_Filt_Gain 0x7014
+#define Loc_Ref       0x7016
+#define Limit_Spd     0x7017
+#define Limit_Cur     0x7018
 
 #define Gain_Angle  720 / 32767.0
 #define Bias_Angle  0x8000

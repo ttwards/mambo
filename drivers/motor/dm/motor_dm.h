@@ -27,8 +27,8 @@
 #ifdef RAD2DEG
 #undef RAD2DEG
 #endif
-#define RAD2DEG   (180.0f / PI)
-#define DEG2RAD   PI / 180.0f
+#define RAD2DEG (180.0f / PI)
+#define DEG2RAD PI / 180.0f
 
 #define CANID_L 0u
 #define CANID_H 1u

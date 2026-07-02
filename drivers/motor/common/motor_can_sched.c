@@ -275,7 +275,8 @@ static int queue_entry_locked(const struct device *can_dev, const struct can_fra
 		return -ENOSPC;
 	}
 
-	bus->stats.queue_peak[meta->priority] = MAX(bus->stats.queue_peak[meta->priority], ring->count);
+	bus->stats.queue_peak[meta->priority] =
+		MAX(bus->stats.queue_peak[meta->priority], ring->count);
 	return 0;
 }
 
@@ -580,7 +581,8 @@ static uint16_t choose_phase_locked(struct motor_can_sched_bus *bus,
 		uint32_t peak = 0U;
 		uint32_t total = 0U;
 
-		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME; slot += period_ticks) {
+		for (uint16_t slot = phase; slot < MOTOR_CAN_SCHED_SUPERFRAME;
+		     slot += period_ticks) {
 			uint32_t loaded = bus->phase_load[slot] + cost;
 
 			total += loaded;
@@ -772,7 +774,8 @@ void motor_can_sched_report_rx(const struct device *can_dev, const struct can_fr
 		if (!pending->used) {
 			continue;
 		}
-		if ((frame->id & pending->reply_mask) == (pending->reply_id & pending->reply_mask)) {
+		if ((frame->id & pending->reply_mask) ==
+		    (pending->reply_id & pending->reply_mask)) {
 			uint32_t rtt_ms = k_uptime_get_32() - pending->sent_at_ms;
 
 			bus->stats.ack_matches++;
