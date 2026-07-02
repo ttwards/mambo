@@ -39,3 +39,6 @@ properties:
   i_max:
     type: string
     required: true
+  freq:
+    type: int
+    description: VESC active ping frequency in Hz for online/offline detection.

@@ -68,6 +68,7 @@ void lk_motor_control(const struct device *dev, enum motor_cmd cmd)
 		k_msleep(10);
 		data->online = true;
 		data->enabled = true;
+		data->missed_times = 0;
 		break;
 	case DISABLE_MOTOR:
 		frame.data[0] = LK_CMD_MOTOR_OFF; // 0x80
@@ -300,6 +301,7 @@ static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 		data->missed_times = 0;
 		data->online = true;
 		data->need_init_frames = true;
+		LOG_INF("Motor %s is online.", motor_devices[idx]->name);
 	}
 	// Data[0]: 命令字节
 	// Data[1]: 温度
@@ -357,7 +359,8 @@ void lk_tx_data_handler(struct k_work *work)
 
 		if (data->enabled) {
 			if (data->missed_times > 10 && data->online) {
-				LOG_ERR("Motor [%d] OFFLINE (No feedback)", cfg->id);
+				LOG_ERR("Motor %s is not responding, setting it to offline.",
+					motor_devices[i]->name);
 
 				data->online = false;
 				data->offline_tx_cnt = 0;

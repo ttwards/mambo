@@ -23,8 +23,101 @@
 
 LOG_MODULE_REGISTER(motor_vesc, CONFIG_MOTOR_LOG_LEVEL);
 
+#define VESC_DEFAULT_PING_FREQ_HZ  10U
+#define VESC_MONITOR_TICK_MS       20U
+#define VESC_OFFLINE_TIMEOUT_FLOOR 300U
+
+#define VESC_MOTOR_COUNT         DT_NUM_INST_STATUS_OKAY(vesc_motor)
+#define VESC_MOTOR_POINTER(inst) DEVICE_DT_GET(DT_DRV_INST(inst)),
+static const struct device *vesc_motor_devices[] = {
+	DT_INST_FOREACH_STATUS_OKAY(VESC_MOTOR_POINTER)
+};
+
+static struct k_work_q vesc_work_queue;
+K_THREAD_STACK_DEFINE(vesc_work_queue_stack, VESC_CAN_SEND_STACK_SIZE);
+
 static void vesc_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 				void *user_data);
+static void vesc_monitor_handler(struct k_work *work);
+static void vesc_monitor_timer_handler(struct k_timer *timer);
+
+K_WORK_DEFINE(vesc_monitor_work, vesc_monitor_handler);
+K_TIMER_DEFINE(vesc_monitor_timer, vesc_monitor_timer_handler, NULL);
+
+static bool vesc_monitor_started;
+
+static uint32_t vesc_ping_period_ms(const struct vesc_motor_config *cfg)
+{
+	uint32_t freq = cfg->freq > 0 ? (uint32_t)cfg->freq : VESC_DEFAULT_PING_FREQ_HZ;
+	uint32_t period_ms = 1000U / freq;
+
+	if (period_ms == 0U) {
+		period_ms = 1U;
+	}
+
+	return period_ms;
+}
+
+static uint32_t vesc_offline_timeout_ms(const struct vesc_motor_config *cfg)
+{
+	uint32_t timeout_ms = vesc_ping_period_ms(cfg) * 3U;
+
+	if (timeout_ms < VESC_OFFLINE_TIMEOUT_FLOOR) {
+		timeout_ms = VESC_OFFLINE_TIMEOUT_FLOOR;
+	}
+
+	return timeout_ms;
+}
+
+static void vesc_send_ping(const struct device *dev)
+{
+	const struct vesc_motor_config *cfg = dev->config;
+	struct can_frame frame = {0};
+	struct vesc_can_id *vesc_can_id = (struct vesc_can_id *)&frame.id;
+
+	vesc_can_id->motor_id = cfg->common.id;
+	vesc_can_id->msg_type = CAN_PACKET_PING;
+	frame.flags = CAN_FRAME_IDE;
+	frame.dlc = 0;
+
+	motor_can_sched_send_prio(cfg->common.phy, &frame, true, "vesc-ping");
+}
+
+static void vesc_monitor_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	uint64_t now = k_uptime_get();
+
+	for (int i = 0; i < VESC_MOTOR_COUNT; i++) {
+		struct vesc_motor_data *data = vesc_motor_devices[i]->data;
+		const struct vesc_motor_config *cfg = vesc_motor_devices[i]->config;
+
+		if (!data->enable) {
+			continue;
+		}
+
+		if (now - data->last_ping_time >= vesc_ping_period_ms(cfg)) {
+			vesc_send_ping(vesc_motor_devices[i]);
+			data->last_ping_time = now;
+		}
+
+		if (data->online && now - data->prev_recv_time > vesc_offline_timeout_ms(cfg)) {
+			LOG_ERR("Motor %s is not responding, setting it to offline.",
+				vesc_motor_devices[i]->name);
+			data->online = false;
+		}
+
+		k_sleep(K_USEC(130));
+	}
+}
+
+static void vesc_monitor_timer_handler(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+
+	k_work_submit_to_queue(&vesc_work_queue, &vesc_monitor_work);
+}
 
 int vesc_init(const struct device *dev)
 {
@@ -50,6 +143,15 @@ int vesc_init(const struct device *dev)
 		motor_stats_inc(MOTOR_STAT_CAN_FILTER_ERROR);
 		return -1;
 	}
+
+	if (!vesc_monitor_started) {
+		k_work_queue_start(&vesc_work_queue, vesc_work_queue_stack,
+				   VESC_CAN_SEND_STACK_SIZE, VESC_CAN_SEND_PRIORITY, NULL);
+		k_timer_start(&vesc_monitor_timer, K_MSEC(VESC_MONITOR_TICK_MS),
+			      K_MSEC(VESC_MONITOR_TICK_MS));
+		vesc_monitor_started = true;
+	}
+
 	return 0;
 }
 
@@ -65,6 +167,8 @@ void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
 	switch (cmd) {
 	case ENABLE_MOTOR:
 		data->enable = true;
+		data->online = true;
+		data->prev_recv_time = k_uptime_get();
 		break;
 	case DISABLE_MOTOR:
 		data->enable = false;
@@ -250,24 +354,45 @@ int vesc_set(const struct device *dev, motor_setpoint_t *status)
 	return 0;
 }
 
+static void vesc_mark_online(const struct device *dev, struct vesc_motor_data *data)
+{
+	if (!data->online) {
+		LOG_INF("Motor %s is online.", dev->name);
+	}
+	data->online = true;
+	data->prev_recv_time = k_uptime_get();
+}
+
 static void vesc_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
 				void *user_data)
 {
 	motor_can_sched_report_rx(can_dev, frame);
 	const struct device *dev = (const struct device *)user_data;
 	struct vesc_motor_data *data = (struct vesc_motor_data *)(dev->data);
+	const struct vesc_motor_config *cfg = (const struct vesc_motor_config *)(dev->config);
 	struct vesc_can_id *vesc_can_id = (struct vesc_can_id *)&(frame->id);
+
+	if (vesc_can_id->motor_id != cfg->common.id) {
+		return;
+	}
+
 	switch (vesc_can_id->msg_type) {
+	case CAN_PACKET_PONG:
+		vesc_mark_online(dev, data);
+		break;
 	case CAN_PACKET_STATUS:
+		vesc_mark_online(dev, data);
 		data->RAWrpm = (frame->data[0] << 24) | (frame->data[1] << 16) |
 			       (frame->data[2] << 8) | (frame->data[3]);
 		data->RAWcurrent = (int32_t)((frame->data[4] << 8) | (frame->data[5]));
 		break;
 	case CAN_PACKET_STATUS_4:
+		vesc_mark_online(dev, data);
 		data->RAWangle = (int32_t)((frame->data[6] << 8) | (frame->data[7]));
 		data->RAWtemp = (int32_t)((frame->data[2] << 8) | (frame->data[3]));
 		break;
 	case CAN_PACKET_STATUS_5:
+		vesc_mark_online(dev, data);
 		break;
 	}
 }

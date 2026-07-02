@@ -11,6 +11,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/motor.h>
+#include <zephyr/kernel.h>
 
 #define DT_DRV_COMPAT vesc_motor
 
@@ -36,7 +37,10 @@
 #define CAN_PACKET_STATUS_4 16 // 10倍MOSFET温度、10倍电机温度、10倍输入电流、50倍电机位置（int16）
 #define CAN_PACKET_STATUS_5 27 // 转速计（int32），十倍输入电压（int16）和一个保留位（int16）
 
-#define CAN_FILTER_MASK 0x0
+#define CAN_FILTER_MASK 0xFF
+
+#define VESC_CAN_SEND_STACK_SIZE 1536
+#define VESC_CAN_SEND_PRIORITY   -1
 
 struct vesc_can_id {
 	uint32_t motor_id: 8; // 电机ID
@@ -49,6 +53,8 @@ struct vesc_motor_data {
 
 	bool online; // 电机在线状态
 	bool enable; // 电机使能状态
+	uint64_t prev_recv_time;
+	uint64_t last_ping_time;
 	// bool update;
 	float delta_deg_sum;
 	float target_angle;   // 目标位置，单位度
@@ -88,6 +94,8 @@ extern const struct motor_driver_api vesc_motor_api;
 		.common = MOTOR_DT_DRIVER_DATA_INST_GET(inst),                                     \
 		.online = false,                                                                   \
 		.enable = false,                                                                   \
+		.prev_recv_time = 0,                                                               \
+		.last_ping_time = 0,                                                               \
 		.err = 0,                                                                          \
 		.delta_deg_sum = 0,                                                                \
 		.target_angle = 0,                                                                 \
@@ -107,6 +115,7 @@ extern const struct motor_driver_api vesc_motor_api;
 		.v_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), v_max, 314.0f),                  \
 		.t_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), t_max, 1.5f),                    \
 		.i_max = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), i_max, 22.2f),                   \
+		.freq = DT_PROP_OR(DT_DRV_INST(inst), freq, 10),                                   \
 	};
 
 #define MOTOR_DEVICE_DT_DEFINE(node_id, init_fn, pm, data, config, level, prio, api, ...)          \

@@ -19,6 +19,8 @@
 
 #define DT_DRV_COMPAT dm_motor
 
+#define DM_OFFLINE_ENABLE_RETRY_TX_COUNT 50U
+
 LOG_MODULE_REGISTER(motor_dm, CONFIG_MOTOR_LOG_LEVEL);
 
 /**
@@ -63,6 +65,20 @@ static inline int float_to_uint(float x, float x_min, float x_max, int bits)
 	return (int)((x - offset) * ((float)((1 << bits) - 1)) / span);
 }
 
+static void dm_send_cmd_frame(const struct device *dev, const uint8_t data[8], const char *tag)
+{
+	struct dm_motor_data *motor_data = dev->data;
+	const struct dm_motor_config *cfg = dev->config;
+	struct can_frame frame = {
+		.id = cfg->common.tx_id + motor_data->tx_offset,
+		.flags = 0,
+		.dlc = 8,
+	};
+
+	memcpy(frame.data, data, 8);
+	motor_can_sched_send_prio(cfg->common.phy, &frame, true, tag);
+}
+
 int dm_init(const struct device *dev)
 {
 	const struct dm_motor_config *cfg = dev->config;
@@ -84,34 +100,26 @@ int dm_init(const struct device *dev)
 void dm_control(const struct device *dev, enum motor_cmd cmd)
 {
 	struct dm_motor_data *data = dev->data;
-	const struct dm_motor_config *cfg = dev->config;
-
-	struct can_frame frame;
-	frame.id = cfg->common.tx_id + data->tx_offset;
-	frame.flags = 0;
-	frame.dlc = 8;
 
 	switch (cmd) {
 	case ENABLE_MOTOR:
-		memcpy(frame.data, enable_frame, 8);
-		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-enable");
+		dm_send_cmd_frame(dev, enable_frame, "dm-enable");
 		data->enable = true;
+		data->online = true;
+		data->prev_recv_time = k_uptime_get();
 		break;
 	case DISABLE_MOTOR:
-		memcpy(frame.data, disable_frame, 8);
-		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-disable");
+		dm_send_cmd_frame(dev, disable_frame, "dm-disable");
 		data->enable = false;
 		break;
 	case SET_ZERO:
-		memcpy(frame.data, set_zero_frame, 8);
-		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-set-zero");
+		dm_send_cmd_frame(dev, set_zero_frame, "dm-set-zero");
 		break;
 	case CLEAR_CONTROLLER:
 		memset(&data->params, 0, sizeof(data->params));
 		break;
 	case CLEAR_ERROR:
-		memcpy(frame.data, clear_error_frame, 8);
-		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-clear-error");
+		dm_send_cmd_frame(dev, clear_error_frame, "dm-clear-error");
 		break;
 	default:
 		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
@@ -187,6 +195,12 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 {
 	const struct device *dev = user_data;
 	struct dm_motor_data *data = dev->data;
+	const struct dm_motor_config *cfg = dev->config;
+	uint8_t motor_id = frame->data[0] & 0x0F;
+
+	if (motor_id != (cfg->common.tx_id & 0x0F)) {
+		return;
+	}
 
 	motor_can_sched_report_rx(can_dev, frame);
 	data->prev_recv_time = k_uptime_get();
@@ -198,6 +212,9 @@ static void dm_rx_handler(const struct device *can_dev, struct can_frame *frame,
 	data->RAWtorque = (frame->data[4] & 0xF) << 8;
 	data->update = true;
 
+	if (!data->online) {
+		LOG_INF("Motor %s is online.", dev->name);
+	}
 	data->online = true;
 
 	k_work_submit_to_queue(&dm_work_queue, &dm_rx_data_handle);
@@ -401,13 +418,19 @@ void dm_tx_data_handler(struct k_work *work)
 		struct dm_motor_data *data = motor_devices[i]->data;
 		const struct dm_motor_config *cfg = motor_devices[i]->config;
 
-		if ((data->online && data->enable) && data->tx_cnt >= 3) {
+		if (!data->online && data->enable &&
+		    data->tx_cnt >= DM_OFFLINE_ENABLE_RETRY_TX_COUNT) {
+			dm_send_cmd_frame(motor_devices[i], enable_frame, "dm-retry-enable");
+			data->tx_cnt = 0;
+		}
+		if (data->online && data->enable && data->tx_cnt >= 3) {
 			if (!data->enabled) {
-				dm_control(motor_devices[i], ENABLE_MOTOR);
+				dm_send_cmd_frame(motor_devices[i], enable_frame, "dm-reenable");
 			}
 			data->tx_cnt = 0;
 			if (data->err > 1) {
-				dm_control(motor_devices[i], CLEAR_ERROR);
+				dm_send_cmd_frame(motor_devices[i], clear_error_frame,
+						  "dm-clear-error");
 			}
 		}
 		if (now - data->last_tx_time >= 1000 / cfg->freq) {
@@ -420,6 +443,8 @@ void dm_tx_data_handler(struct k_work *work)
 		}
 		if (now - data->prev_recv_time > 10000 / cfg->freq && data->online &&
 		    data->enable) {
+			LOG_ERR("Motor %s is not responding, setting it to offline.",
+				motor_devices[i]->name);
 			data->online = false;
 			data->enabled = false;
 		}

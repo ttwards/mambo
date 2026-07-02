@@ -136,6 +136,8 @@ void rs_motor_control(const struct device *dev, enum motor_cmd cmd)
 		frame.data[0] = 0x0;
 		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-enable");
 		data->enabled = true;
+		data->online = true;
+		data->missed_times = 0;
 		break;
 	case DISABLE_MOTOR:
 		id.msg_type = Communication_Type_MotorStop;
@@ -291,6 +293,7 @@ static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 			data->target_pos = uint16_to_float(data->RAWangle, -cfg->p_max,
 							   cfg->p_max, 16);
 			data->online = true;
+			LOG_INF("Motor %s is online.", dev->name);
 		}
 	}
 }
@@ -309,13 +312,10 @@ void rs_tx_data_handler(struct k_work *work)
 		const struct rs_motor_cfg *cfg = motor_devices[i]->config;
 
 		if (data->enabled) {
-			if (data->missed_times > 100) {
+			if (data->missed_times > 100 && data->online) {
 				LOG_ERR("Motor %s is not responding, setting it to offline.",
 					motor_devices[i]->name);
-				data->missed_times = 0;
-				if (data->online) {
-					data->online = false;
-				}
+				data->online = false;
 			}
 			rs_motor_pack(motor_devices[i], &tx_frame);
 			motor_can_sched_send_reply(
@@ -323,7 +323,9 @@ void rs_tx_data_handler(struct k_work *work)
 				(Communication_Type_MotorFeedback << 24) |
 					((cfg->common.tx_id & 0xFF) << 8),
 				0x1F00FF00, 5U, "rs-control");
-			data->missed_times++;
+			if (data->missed_times < INT16_MAX) {
+				data->missed_times++;
+			}
 		}
 	}
 }
