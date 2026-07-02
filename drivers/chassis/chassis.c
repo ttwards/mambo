@@ -71,8 +71,13 @@ void cchassis_set_angle(const struct device *dev, float angle)
 void cchassis_set_speed(const struct device *dev, float x_speed, float y_speed)
 {
 	chassis_data_t *data = dev->data;
-	data->target_status.speedX = x_speed;
-	data->target_status.speedY = y_speed;
+
+	/*
+	 * Public chassis API uses the robot frame: +X forward, +Y left.
+	 * The steerwheel solver below uses +X right, +Y forward.
+	 */
+	data->target_status.speedX = -y_speed;
+	data->target_status.speedY = x_speed;
 }
 
 void cchassis_set_gyro(const struct device *dev, float gyro)
