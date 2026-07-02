@@ -244,6 +244,12 @@ static void parse_sync(struct AresProtocol *protocol, uint8_t *buf, size_t len)
 	uint16_t ID = GET_16BITS(buf, SYNC_ID_IDX);
 	uint8_t *pdata = buf + SYNC_DATA_IDX;
 	size_t data_len = len - SYNC_FRAME_LENGTH_OFFSET;
+	static uint32_t sync_rx_count;
+
+	sync_rx_count++;
+	if (sync_rx_count <= 16U || (sync_rx_count % 100U) == 0U) {
+		LOG_INF("%s SYNC RX #%u id=0x%04x len=%u", data->name, sync_rx_count, ID, len);
+	}
 
 	sync_table_t *pack = find_pack(protocol->priv_data, ID);
 	if (pack == NULL) {

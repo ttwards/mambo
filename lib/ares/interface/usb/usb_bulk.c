@@ -4,6 +4,7 @@
  */
 
 #include <zephyr/usb/usbd.h>
+#include <zephyr/usb/usb_ch9.h>
 #include <zephyr/drivers/usb/udc.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -183,6 +184,33 @@ static int ares_if_request_handler(struct usbd_class_data *const c_data, struct 
 		}
 
 		if (err_code == 0 && buf->len > 0) {
+			static uint32_t rx_count;
+
+			rx_count++;
+			if (rx_count <= 16U || (rx_count % 100U) == 0U) {
+				uint16_t head = 0U;
+				uint8_t b0 = 0U;
+				uint8_t b1 = 0U;
+				uint8_t b2 = 0U;
+				uint8_t b3 = 0U;
+
+				if (buf->len > 0U) {
+					b0 = buf->data[0];
+				}
+				if (buf->len > 1U) {
+					b1 = buf->data[1];
+					head = (uint16_t)b0 | ((uint16_t)b1 << 8);
+				}
+				if (buf->len > 2U) {
+					b2 = buf->data[2];
+				}
+				if (buf->len > 3U) {
+					b3 = buf->data[3];
+				}
+
+				LOG_INF("ARES Bulk OUT #%u len=%u head=0x%04x bytes=%02x %02x %02x %02x",
+					rx_count, buf->len, head, b0, b1, b2, b3);
+			}
 			if (k_msgq_put(&incoming_data_msgq, &buf, K_NO_WAIT) != 0) {
 				/* Queue is full (back-pressure!). Drop packet and log. */
 				{
@@ -312,6 +340,11 @@ struct ares_udc_buf_info {
 	struct udc_buf_info udc_buf_info;
 	struct k_mutex *mutex;
 } __attribute__((packed));
+
+static const char *const ares_usbd_bulk_first_blocklist[] = {
+	"ares_if_0",
+	NULL,
+};
 
 /* To send data, we can allocate from the general-purpose system pool */
 void buf_cb_unlock(struct net_buf *buf)
@@ -447,16 +480,46 @@ static void ares_usbd_protocol_event(enum AresProtocolEvent event)
 	}
 }
 
+static void ares_usbd_fix_code_triple(struct usbd_context *uds_ctx, enum usbd_speed speed)
+{
+	if (IS_ENABLED(CONFIG_USBD_CDC_ACM_CLASS)) {
+		usbd_device_set_code_triple(uds_ctx, speed, USB_BCC_MISCELLANEOUS, 0x02, 0x01);
+	} else {
+		usbd_device_set_code_triple(uds_ctx, speed, 0, 0, 0);
+	}
+}
+
+static int ares_usbd_register_classes(enum usbd_speed speed)
+{
+	int err;
+
+	err = usbd_register_class(&ares_usbd, "ares_if_0", speed, 1);
+	if (err) {
+		LOG_ERR("Failed to register ARES Bulk class for %s (%d)",
+			speed == USBD_SPEED_HS ? "HS" : "FS", err);
+		return err;
+	}
+
+	err = usbd_register_all_classes(&ares_usbd, speed, 1, ares_usbd_bulk_first_blocklist);
+	if (err) {
+		LOG_ERR("Failed to register composite USB classes for %s (%d)",
+			speed == USBD_SPEED_HS ? "HS" : "FS", err);
+		return err;
+	}
+
+	return 0;
+}
+
 // Corrected message callback, same as in sample_usbd.c
 static void ares_usbd_msg_cb(struct usbd_context *const usbd_ctx, const struct usbd_msg *const msg)
 {
 	switch (msg->type) {
 	case USBD_STATE_CONFIGURED:
-		// LOG_INF("USB device configured");
+		LOG_INF("USB device configured");
 		ares_usbd_protocol_event(ARES_PROTOCOL_EVENT_CONNECTED);
 		break;
 	case USBD_MSG_RESET:
-		// LOG_INF("USB device reset");
+		LOG_INF("USB device reset");
 		ares_usbd_protocol_event(ARES_PROTOCOL_EVENT_DISCONNECTED);
 		break;
 	case USBD_MSG_SUSPEND:
@@ -497,12 +560,12 @@ int ares_usbd_init(struct AresInterface *interface)
 		return err;
 	}
 
-	// Correctly register classes for FS
-	err = usbd_register_all_classes(&ares_usbd, USBD_SPEED_FS, 1, NULL);
+	// Keep ARES Bulk registered first so it keeps EP OUT 0x01 and IN 0x81.
+	err = ares_usbd_register_classes(USBD_SPEED_FS);
 	if (err) {
-		LOG_ERR("Failed to register all classes for FS (%d)", err);
 		return err;
 	}
+	ares_usbd_fix_code_triple(&ares_usbd, USBD_SPEED_FS);
 
 	if (USBD_SUPPORTS_HIGH_SPEED && usbd_caps_speed(&ares_usbd) == USBD_SPEED_HS) {
 		err = usbd_add_configuration(&ares_usbd, USBD_SPEED_HS, &ares_hs_config);
@@ -510,13 +573,13 @@ int ares_usbd_init(struct AresInterface *interface)
 			LOG_ERR("Failed to add HS config");
 			return err;
 		}
-		// Correctly register classes for HS
-		err = usbd_register_all_classes(&ares_usbd, USBD_SPEED_HS, 1, NULL);
+		err = ares_usbd_register_classes(USBD_SPEED_HS);
 		if (err) {
-			LOG_ERR("Failed to register all classes for HS (%d)", err);
 			return err;
 		}
+		ares_usbd_fix_code_triple(&ares_usbd, USBD_SPEED_HS);
 	}
+	usbd_self_powered(&ares_usbd, attributes & USB_SCD_SELF_POWERED);
 
 	// Correctly register the message callback
 	err = usbd_msg_register_cb(&ares_usbd, ares_usbd_msg_cb);

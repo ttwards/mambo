@@ -16,7 +16,7 @@ LOG_MODULE_REGISTER(ares_sbus, CONFIG_SBUS_LOG_LEVEL);
 
 // serial buffer pool
 #define BUF_SIZE 64
-K_MEM_SLAB_DEFINE(sbus_uart_slab, BUF_SIZE, 4, 4);
+K_MEM_SLAB_DEFINE_IN_SECT(sbus_uart_slab, __nocache, BUF_SIZE, 4, 4);
 
 static const struct device *uart_dev = DEVICE_DT_GET(DT_CHOSEN(sbus_uart));
 
@@ -150,7 +150,7 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 			err = uart_rx_enable(dev, buf, BUF_SIZE, 100);
 			if (err) {
 				LOG_ERR("Failed to enable RX: %d", err);
-				k_mem_slab_free(&sbus_uart_slab, (void **)&buf);
+				k_mem_slab_free(&sbus_uart_slab, buf);
 			}
 		} else {
 			LOG_ERR("Failed to allocate memory: %d", err);
@@ -187,11 +187,11 @@ static int sbus_init(const struct device *dev)
 	}
 
 	err = k_mem_slab_alloc(&sbus_uart_slab, (void **)&buf, K_NO_WAIT);
-	memset(buf, 0, BUF_SIZE);
 	if (err) {
 		LOG_ERR("Failed to allocate memory: %d", err);
 		return err;
 	}
+	memset(buf, 0, BUF_SIZE);
 
 	// 启用接收前确保串口配置正确
 	const struct uart_config config = {.baudrate = 100000,
@@ -203,7 +203,7 @@ static int sbus_init(const struct device *dev)
 	err = uart_configure(uart_dev, &config);
 	if (err) {
 		LOG_ERR("Failed to configure UART: %d", err);
-		k_mem_slab_free(&sbus_uart_slab, (void **)&buf);
+		k_mem_slab_free(&sbus_uart_slab, buf);
 		return err;
 	}
 
@@ -213,7 +213,7 @@ static int sbus_init(const struct device *dev)
 	err = uart_rx_enable(uart_dev, buf, BUF_SIZE, 100);
 	if (err) {
 		LOG_ERR("Failed to enable RX: %d", err);
-		k_mem_slab_free(&sbus_uart_slab, (void **)&buf);
+		k_mem_slab_free(&sbus_uart_slab, buf);
 		return err;
 	}
 
