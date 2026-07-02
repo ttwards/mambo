@@ -14,7 +14,9 @@ build
 .cache
 .DS_Store
 .VSCodeCounter
-app
+/app/*
+!/app/2026_R2usb_armv2/
+!/app/2026_R2usb_armv2/**
 assembly.txt
 .vscode
 assembly.txt

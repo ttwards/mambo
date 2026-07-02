@@ -1,0 +1,384 @@
+/ {
+	chosen {
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
+		zephyr,log-uart = &log_uarts;
+		sbus,uart = &uart5;
+	};
+
+	log_uarts: log_uarts {
+		compatible = "zephyr,log-uart";
+		uarts = <&usart10 &cdc_acm_uart0>;
+	};
+
+	chassis: chassis {
+		compatible = "ares,chassis";
+		status = "okay";
+		wheels = <&steerwheel4  (-5650) (-5650)>,
+				<&steerwheel2 (5650) (5650)>,
+				<&steerwheel1 (-5650) (5650)>,
+				<&steerwheel3 (5650) (-5650)>;
+		angle-pid = <&chassis_roll_angle_pid>;
+		track_angle;
+		max_linear_accel = "15";
+	};
+	steerwheel {
+		steerwheel1: steerwheel1 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer0>;
+			wheel-motor = <&motor_wheel0>;
+			wheel-radius = "0.04";
+			angle-offset = "0";
+			multi_turn;
+		};
+
+		steerwheel2: steerwheel2 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer1>;
+			wheel-motor = <&motor_wheel1>;
+			wheel-radius = "0.04";
+			angle-offset = "180";
+			multi_turn;
+		};
+
+		steerwheel3: steerwheel3 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer2>;
+			wheel-motor = <&motor_wheel2>;
+			wheel-radius = "0.04";
+			angle-offset = "180";
+			multi_turn;
+		};
+		steerwheel4: steerwheel4 {
+			#wheel-cells = <2>;
+			compatible = "ares,steerwheel";
+			status = "okay";
+			steer-motor = <&motor_steer3>;
+			wheel-motor = <&motor_wheel3>;
+			wheel-radius = "0.04";
+			angle-offset = "0";
+			multi_turn;
+		};
+	};
+
+	motor {
+		motor_wheel0: motor_wheel0{
+			compatible = "vesc,motor";
+            id = <1>;
+            can_channel = <&fdcan1>;
+            gear_ratio = "1.0f";
+            kv = "150.0f";
+            pole_pairs = "14";
+            p_max = "12.57f";
+            v_max = "314.0f";
+            t_max = "1.5f";
+            i_max = "2.f";
+            status = "okay";
+		};
+
+		motor_wheel1: motor_wheel1{
+			compatible = "vesc,motor";
+            id = <2>;
+            can_channel = <&fdcan2>;
+            gear_ratio = "1.0f";
+            kv = "150.0f";
+            pole_pairs = "14";
+            p_max = "12.57f";
+            v_max = "314.0f";
+            t_max = "1.5f";
+            i_max = "2.f";
+            status = "okay";
+		};
+
+		motor_wheel2: motor_wheel2{
+			compatible = "vesc,motor";
+            id = <3>;
+            can_channel = <&fdcan2>;
+            gear_ratio = "1.0f";
+            kv = "150.0f";
+            pole_pairs = "14";
+            p_max = "12.57f";
+            v_max = "314.0f";
+            t_max = "1.5f";
+            i_max = "2.f";
+            status = "okay";
+		};
+		motor_wheel3: motor_wheel3{
+			compatible = "vesc,motor";
+            id = <4>;
+            can_channel = <&fdcan1>;
+            gear_ratio = "1.0f";
+            kv = "150.0f";
+            pole_pairs = "14";
+            p_max = "12.57f";
+            v_max = "314.0f";
+            t_max = "1.5f";
+            i_max = "2.f";
+            status = "okay";
+		};
+		motor_steer0: motor_steer0{
+			compatible = "lk,motor";
+			id = <1>;
+			rx_id = <0x00>;
+			tx_id = <0x01>;
+			status = "okay";
+			can_channel = <&fdcan1>;
+			controllers = <&steer_angle_ctrl &steer_speed_ctrl &steer_torque_ctrl>;
+		};
+
+		motor_steer1: motor_steer1{
+			compatible = "lk,motor";
+			id = <2>;
+			rx_id = <0x00>;
+			tx_id = <0x02>;
+			status = "okay";
+			can_channel = <&fdcan2>;
+			controllers = <&steer_angle_ctrl &steer_speed_ctrl &steer_torque_ctrl>;
+		};
+
+		motor_steer2: motor_steer2{
+			compatible = "lk,motor";
+			id = <3>;
+			rx_id = <0x00>;
+			tx_id = <0x03>;
+			status = "okay";
+			can_channel = <&fdcan2>;
+			controllers = <&steer_angle_ctrl &steer_speed_ctrl &steer_torque_ctrl>;
+		};
+		motor_steer3: motor_steer3{
+			compatible = "lk,motor";
+			id = <4>;
+			rx_id = <0x00>;
+			tx_id = <0x04>;
+			status = "okay";
+			can_channel = <&fdcan1>;
+			controllers = <&steer_angle_ctrl &steer_speed_ctrl &steer_torque_ctrl>;
+		};
+		dm_motor0: dm_motor0{
+			compatible = "dm,motor";
+			id = <1>;
+			rx_id = <0x1D>;
+			tx_id = <0x01>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&fdcan1>;
+			controllers = <&mit>;
+			t_max = "5";
+			freq = <1000>;
+		};
+		dm_motor1: dm_motor1{
+			compatible = "dm,motor";
+			id = <2>;
+			rx_id = <0x1D>;
+			tx_id = <0x02>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&fdcan2>;
+			controllers = <&mit>;
+			t_max = "5";
+			freq = <1000>;
+		};
+		dm_motor2: dm_motor2{
+			compatible = "dm,motor";
+			id = <3>;
+			rx_id = <0x1D>;
+			tx_id = <0x03>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&fdcan2>;
+			controllers = <&mit>;
+			t_max = "5";
+			freq = <1000>;
+		};
+		dm_motor3: dm_motor3{
+			compatible = "dm,motor";
+			id = <4>;
+			rx_id = <0x1D>;
+			tx_id = <0x04>;
+			v_max = "785";
+			status = "okay";
+			can_channel = <&fdcan1>;
+			controllers = <&mit>;
+			t_max = "5";
+			freq = <1000>;
+		};
+		arm_rs_motor1: arm_rs_motor1 {
+			compatible = "rs,motor";
+			id = <1>;
+			tx_id = <0x01>;
+			rx_id = <0xFD>;
+			motor_type = "RS00";
+			status = "okay";
+			can_channel = <&fdcan3>;
+			controllers = <&arm_mit_ctrl_1>;
+		};
+		arm_dm_motor2: arm_dm_motor2 {
+			compatible = "dm,motor";
+			id = <2>;
+			tx_id = <0x02>;
+			rx_id = <0x00>;
+			status = "okay";
+			can_channel = <&fdcan3>;
+			controllers = <&arm_mit_ctrl_2>;
+			p_max = "12.5";
+			v_max = "30";
+			t_max = "10";
+			freq = <1000>;
+		};
+		arm_rs_motor3: arm_rs_motor3 {
+			compatible = "rs,motor";
+			id = <3>;
+			tx_id = <0x03>;
+			rx_id = <0xFD>;
+			motor_type = "RS00";
+			status = "okay";
+			can_channel = <&fdcan3>;
+			controllers = <&arm_mit_ctrl_3>;
+		};
+		arm_rs_motor4: arm_rs_motor4 {
+			compatible = "rs,motor";
+			id = <4>;
+			tx_id = <0x04>;
+			rx_id = <0xFD>;
+			motor_type = "RS00";
+			status = "okay";
+			can_channel = <&fdcan3>;
+			controllers = <&arm_mit_ctrl_4>;
+		};
+	};
+	buttons {
+        compatible = "gpio-keys";
+
+        /* P11 4路接口，从上到下为 1/2/3/4 */
+        sensor_1: photoelectric_switch_1 {
+            gpios = <&gpioa 0 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+
+        sensor_2: photoelectric_switch_2 {
+            gpios = <&gpioa 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+		sensor_3: photoelectric_switch_3 {
+            gpios = <&gpioe 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+
+        sensor_4: photoelectric_switch_4 {
+            gpios = <&gpioe 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        };
+    };
+	emvalve {
+		compatible = "gpio-leds";
+
+		emvalve1: emvalve1 {
+			gpios = <&gpioe 7 GPIO_ACTIVE_LOW>;
+			label = "emvalve1";
+		};
+
+		emvalve2: emvalve2 {
+			gpios = <&gpioe 8 GPIO_ACTIVE_LOW>;
+			label = "emvalve2";
+		};
+	};
+	controller {
+		mit: mit{
+			#controller-cells = <0>;
+			compatible = "motor-controller,mit";
+			k_p = "100.0";
+			k_d = "1.0";
+		};
+		arm_mit_ctrl_1: arm_mit_ctrl_1 {
+			#controller-cells = <0>;
+			compatible = "motor-controller,mit";
+			k_p = "60.0";
+			k_d = "1.0";
+		};
+		arm_mit_ctrl_2: arm_mit_ctrl_2 {
+			#controller-cells = <0>;
+			compatible = "motor-controller,mit";
+			k_p = "100.0";
+			k_d = "1.0";
+		};
+		arm_mit_ctrl_3: arm_mit_ctrl_3 {
+			#controller-cells = <0>;
+			compatible = "motor-controller,mit";
+			k_p = "90.0";
+			k_d = "1.0";
+		};
+		arm_mit_ctrl_4: arm_mit_ctrl_4 {
+			#controller-cells = <0>;
+			compatible = "motor-controller,mit";
+			k_p = "30.0";
+			k_d = "0.5";
+		};
+		wheel_speed_ctrl: wheel_speed_ctrl {
+			#controller-cells = <0>;
+			compatible = "motor-controller,vo";
+			target = "speed";
+		};
+		steer_angle_ctrl: steer_angle_ctrl {
+			#controller-cells = <0>;
+			compatible = "motor-controller,pv";
+			pos_k_p = "40";
+			pos_k_i = "0.01";
+			pos_k_d = "1";
+			vel_k_p = "50";
+			vel_k_i = "0.1";
+			vel_k_d = "2";
+		};
+		steer_speed_ctrl: steer_speed_ctrl {
+			#controller-cells = <0>;
+			compatible = "motor-controller,vo";
+			target = "speed";
+			k_p = "50";
+			k_i = "0.1";
+			k_d = "2";
+		};
+
+		steer_torque_ctrl: steer_torque_ctrl {
+			#controller-cells = <0>;
+			compatible = "motor-controller,vo";
+			target = "torque";
+			k_p = "150";
+			k_i = "1.0";
+			k_d = "5";
+		};
+	};
+
+	pid {
+		chassis_roll_angle_pid: chassis_roll_angle_pid {
+			#controller-cells = <0>;
+			compatible = "pid,single";
+			k_p = "0.3";
+			k_d = "2.7";
+		};
+
+
+	};
+
+	sbus0: sbus0 {
+		compatible = "ares,sbus";
+		status = "okay";
+	};
+};
+
+&uart5 {
+	dmas = <&dmamux1 3 65 STM32_DMA_PERIPH_RX>,
+	       <&dmamux1 4 66 STM32_DMA_PERIPH_TX>;
+	dma-names = "rx", "tx";
+};
+
+zephyr_udc0: &usbotg_hs {
+	pinctrl-0 = <&usb_otg_hs_dm_pa11 &usb_otg_hs_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	cdc_acm_uart0: cdc_acm_uart {
+		compatible = "zephyr,cdc-acm-uart";
+		status = "okay";
+	};
+};
