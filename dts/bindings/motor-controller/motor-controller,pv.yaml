@@ -1,0 +1,43 @@
+description: Motor cascaded position-velocity controller
+
+compatible: "motor-controller,pv"
+
+include: [base.yaml]
+
+properties:
+  pos_k_p:
+    type: string
+  pos_k_i:
+    type: string
+  pos_k_d:
+    type: string
+  pos_i_max:
+    type: string
+  pos_out_max:
+    type: string
+  pos_offset:
+    type: string
+  pos_detri_lpf:
+    type: string
+  vel_k_p:
+    type: string
+  vel_k_i:
+    type: string
+  vel_k_d:
+    type: string
+  vel_i_max:
+    type: string
+  vel_out_max:
+    type: string
+  vel_offset:
+    type: string
+  vel_detri_lpf:
+    type: string
+  i_max:
+    type: string
+  out_max:
+    type: string
+  offset:
+    type: string
+  detri_lpf:
+    type: string

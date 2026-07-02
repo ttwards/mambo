@@ -26,10 +26,7 @@ properties:
     required: true
   controllers:
     type: phandles
-    required: true
-  capabilities:
-    type: string-array
-    required: true
+    required: false
   is_m3508:
     type: boolean
     required: false

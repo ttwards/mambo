@@ -1,0 +1,27 @@
+description: Motor single target controller
+
+compatible: "motor-controller,vo"
+
+include: [base.yaml]
+
+properties:
+  target:
+    type: string
+    enum:
+      - "torque"
+      - "speed"
+    default: "speed"
+  k_p:
+    type: string
+  k_i:
+    type: string
+  k_d:
+    type: string
+  i_max:
+    type: string
+  out_max:
+    type: string
+  offset:
+    type: string
+  detri_lpf:
+    type: string

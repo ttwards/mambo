@@ -1,0 +1,21 @@
+description: Motor MIT controller
+
+compatible: "motor-controller,mit"
+
+include: [base.yaml]
+
+properties:
+  k_p:
+    type: string
+  k_i:
+    type: string
+  k_d:
+    type: string
+  i_max:
+    type: string
+  out_max:
+    type: string
+  offset:
+    type: string
+  detri_lpf:
+    type: string

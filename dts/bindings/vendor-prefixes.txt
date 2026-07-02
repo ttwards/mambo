@@ -1,6 +1,7 @@
 dji	DaJiang Innovation Inc.
 dm	DaMiao Bot Inc.
 mi	Xiaomi Corp.
+motor-controller	ARES motor controller profiles
 pid	PID Controller
 ares	ARES Devices
 pixart	PixArt Imaging Inc.

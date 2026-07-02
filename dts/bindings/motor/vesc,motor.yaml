@@ -18,9 +18,9 @@ properties:
   gear_ratio:
     type: string
     required: true
-  capabilities:
-    type: string-array
-    required: true
+  controllers:
+    type: phandles
+    required: false
   kv:
     type: string
     required: true

@@ -21,7 +21,4 @@ properties:
     required: true
   controllers:
     type: phandles
-    required: true
-  capabilities:
-    type: string-array
-    required: true
+    required: false
