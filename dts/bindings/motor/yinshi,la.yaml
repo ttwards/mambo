@@ -1,0 +1,41 @@
+description: Yinshi Robotics Micro Servo Electric Cylinder (LA series)
+
+compatible: "yinshi,la"
+
+properties:
+  uart:
+    type: phandle
+    required: true
+    description: |
+      UART device for communication. For D-type interface, use
+      3.3V LVTTL UART at 921600 baud. For 2-type (RS485) interface,
+      use RS485 UART at 115200 baud with de-gpios for direction control.
+
+  id:
+    type: int
+    default: 1
+    description: |
+      Device ID on the UART bus (1-254). Multiple actuators sharing
+      the same bus must have different IDs. 255 is the broadcast ID.
+
+  de-gpios:
+    type: phandle-array
+    required: false
+    description: |
+      RS485 driver-enable (DE) GPIO. Required for 2-type (RS485)
+      interface. When specified, the driver controls this pin to
+      switch between TX (high) and RX (low). Omit for D-type
+      (full-duplex TTL UART) interface.
+
+  max-retries:
+    type: int
+    default: 3
+    description: |
+      Maximum retry count for position commands that expect a reply.
+
+  reply-timeout-ms:
+    type: int
+    default: 5
+    description: |
+      Timeout in milliseconds to wait for a reply frame before retrying.
+      The actuator responds in 120-800us; 5ms provides generous margin.

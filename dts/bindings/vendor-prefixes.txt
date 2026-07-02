@@ -9,3 +9,4 @@ lk	Lingkong Corp.
 rs	RobStride Dynamics.
 vesc	VESC Project.
 custom	Custom virtual device examples
+yinshi	Yinshi Robotics.
