@@ -299,6 +299,7 @@ static void lk_can_rx_handler(const struct device *can_dev, struct can_frame *fr
 	if (!data->online) {
 		data->missed_times = 0;
 		data->online = true;
+		data->need_init_frames = true;
 	}
 	// Data[0]: 命令字节
 	// Data[1]: 温度
@@ -359,13 +360,38 @@ void lk_tx_data_handler(struct k_work *work)
 				LOG_ERR("Motor [%d] OFFLINE (No feedback)", cfg->id);
 
 				data->online = false;
+				data->offline_tx_cnt = 0;
 			}
 			if (data->missed_times < 100) {
 				data->missed_times++;
 			}
-			// if( !data->online) {
-			// 	continue;
-			// }
+			if (!data->online) {
+				if ((data->offline_tx_cnt++ % 3U) == 0U) {
+					memset(&tx_frame, 0, sizeof(tx_frame));
+					tx_frame.id = LK_CMD_ID_BASE + cfg->id;
+					tx_frame.dlc = 8;
+					tx_frame.flags = 0;
+					tx_frame.data[0] = LK_CMD_MOTOR_RUN;
+					motor_can_sched_send_prio(cfg->common.phy, &tx_frame, true,
+								  "lk-retry-enable");
+				}
+				continue;
+			}
+			if (data->need_init_frames) {
+				memset(&tx_frame, 0, sizeof(tx_frame));
+				tx_frame.id = LK_CMD_ID_BASE + cfg->id;
+				tx_frame.dlc = 8;
+				tx_frame.flags = 0;
+				tx_frame.data[0] = LK_CMD_MOTOR_RUN;
+				motor_can_sched_send_prio(cfg->common.phy, &tx_frame, true,
+							  "lk-reenable");
+				data->params_update[0] = true;
+				data->params_update[1] = true;
+				data->params_update[2] = true;
+				data->need_init_frames = false;
+				data->offline_tx_cnt = 0;
+				k_work_submit_to_queue(&lk_work_queue, &lk_tx_params_data_handle);
+			}
 			lk_motor_pack(motor_devices[i], &tx_frame);
 			motor_can_sched_send_reply(cfg->common.phy, &tx_frame,
 						   LK_CMD_ID_BASE + cfg->id, CAN_STD_ID_MASK,
@@ -518,7 +544,7 @@ void lk_init_handler(struct k_work *work)
 	}
 	k_work_submit_to_queue(&lk_work_queue, &lk_tx_params_data_handle);
 	lk_tx_timer.expiry_fn = lk_tx_isr_handler;
-	k_timer_start(&lk_tx_timer, K_MSEC(600), K_MSEC(4));
+	k_timer_start(&lk_tx_timer, K_MSEC(600), K_MSEC(8));
 	k_timer_user_data_set(&lk_tx_timer, &lk_tx_data_handle);
 }
 

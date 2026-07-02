@@ -83,6 +83,8 @@ struct lk_motor_data {
 	bool online;
 	bool update;
 	bool enabled;
+	bool need_init_frames;
+	uint16_t offline_tx_cnt;
 	struct motor_controller_params params[3];
 	bool params_update[3];
 };
@@ -132,6 +134,8 @@ K_TIMER_DEFINE(lk_tx_timer, lk_tx_isr_handler, NULL);
 		.target_speed = 0,                                                                 \
 		.target_torque = 0,                                                                \
 		.update = false,                                                                   \
+		.need_init_frames = false,                                                         \
+		.offline_tx_cnt = 0,                                                               \
 	};
 
 #define LKMOTOR_CONFIG_INST(inst)                                                                  \
