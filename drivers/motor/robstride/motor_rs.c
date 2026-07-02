@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/_stdint.h>
-#include <zephyr/drivers/pid.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
@@ -158,7 +157,7 @@ void rs_motor_control(const struct device *dev, enum motor_cmd cmd)
 		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-clear-error");
 		data->enabled = false;
 		break;
-	case CLEAR_PID:
+	case CLEAR_CONTROLLER:
 		break;
 	default:
 		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_CMD);
@@ -204,7 +203,7 @@ static void rs_motor_pack(const struct device *dev, struct can_frame *frame)
 	return;
 }
 
-int rs_motor_set_mode(const struct device *dev, enum motor_mode mode)
+static int rs_apply_controller_mode(const struct device *dev, enum motor_mode mode)
 {
 
 	struct rs_motor_data *data = dev->data;
@@ -232,27 +231,33 @@ int rs_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	frame.data[4] = (uint8_t)mode;
 	motor_can_sched_send_prio(cfg->common.phy, &frame, true, "rs-set-mode");
 
-	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
-		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
+	for (int i = 0; i < motor_get_controller_count(dev); i++) {
+		const struct motor_controller_config *ctrl_cfg = &cfg->common.controllers[i];
+
+		if (ctrl_cfg->param_count == 0) {
 			motor_stats_inc(MOTOR_STAT_CONFIG_ERROR);
 			break;
 		}
-		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
-			struct pid_config params = {0};
-			pid_get_params(cfg->common.pid_datas[i], &params);
+		if (data->common.controller_id != MOTOR_CONTROLLER_ID_AUTO &&
+		    data->common.controller_id != i) {
+			continue;
+		}
+		if (strcmp(ctrl_cfg->info.name, mode_str) == 0 || ctrl_cfg->info.mode == mode) {
+			struct motor_controller_params params = {0};
+
+			if (motor_controller_get_params(ctrl_cfg, 0, &params) < 0) {
+				continue;
+			}
 
 			data->common.mode = mode;
+			data->common.target = MOTOR_TARGET_POSITION;
+			data->common.controller_id = i;
 			data->params.k_p = params.k_p;
 			data->params.k_d = params.k_d;
 			break;
 		}
 	}
 	return 0;
-}
-
-void rs_motor_set_mode_api(const struct device *dev, enum motor_mode mode)
-{
-	(void)rs_motor_set_mode(dev, mode);
 }
 
 static void rs_can_rx_handler(const struct device *can_dev, struct can_frame *frame,
@@ -345,6 +350,8 @@ int rs_get(const struct device *dev, motor_status_t *status)
 	status->torque = data->common.torque;
 	status->temperature = data->common.temperature;
 	status->mode = data->common.mode;
+	status->target = data->common.target;
+	status->controller_id = data->common.controller_id;
 	status->sum_angle = data->common.angle;
 	status->speed_limit[0] = cfg->v_max;
 	status->speed_limit[1] = -cfg->v_max;
@@ -359,22 +366,40 @@ int rs_get(const struct device *dev, motor_status_t *status)
  * @param dev Pointer to the motor device structure: robstride motor device
  * @param status Pointer to the motor status structure
  */
-int rs_set(const struct device *dev, motor_status_t *status)
+int rs_set(const struct device *dev, motor_setpoint_t *status)
 {
 	struct rs_motor_data *data = dev->data;
+	motor_controller_info_t controller = {0};
+	enum motor_mode previous_mode = data->common.mode;
+	uint8_t previous_controller_id = data->common.controller_id;
+	int ret;
+
+	ret = motor_resolve_controller(dev, status, &controller);
+	if (ret < 0) {
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return ret;
+	}
+	if (status->target != MOTOR_TARGET_NONE) {
+		data->common.controller_id = status->controller_id;
+	} else {
+		return 0;
+	}
 
 	if (status->mode == MIT) {
+		data->common.target = MOTOR_TARGET_POSITION;
 		data->target_pos = status->angle / RAD2DEG;
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
 	} else {
 		return -ENOSYS;
 	}
-	if (status->mode != data->common.mode) {
-		if (rs_motor_set_mode(dev, status->mode) < 0) {
+	if (status->mode != previous_mode || status->controller_id != previous_controller_id) {
+		if (rs_apply_controller_mode(dev, status->mode) < 0) {
 			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 			return -EIO;
 		}
+	} else {
+		data->common.mode = status->mode;
 	}
 	return 0;
 }

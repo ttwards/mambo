@@ -7,7 +7,6 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/motor.h>
-#include <zephyr/drivers/pid.h>
 
 #define DT_DRV_COMPAT rs_motor
 
@@ -35,6 +34,9 @@
 #define PI               3.14159265f
 #define SIZE_OF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
 #define RAD2ROUND        1.0f / (2 * PI)
+#ifdef RAD2DEG
+#undef RAD2DEG
+#endif
 #define RAD2DEG          (180.0f / PI)
 // 参数读取宏定义
 #define Run_mode         0x7005
@@ -126,7 +128,7 @@ struct rs_motor_data {
 	uint8_t error_code;
 	bool online;
 	bool enabled;
-	struct pid_config params;
+	struct motor_controller_params params;
 	int16_t missed_times;
 };
 
@@ -144,11 +146,9 @@ struct rs_motor_cfg {
 };
 
 struct k_work_q rs_work_queue;
-int rs_set(const struct device *dev, motor_status_t *status);
+int rs_set(const struct device *dev, motor_setpoint_t *status);
 int rs_get(const struct device *dev, motor_status_t *status);
 void rs_motor_control(const struct device *dev, enum motor_cmd cmd);
-int rs_motor_set_mode(const struct device *dev, enum motor_mode mode);
-void rs_motor_set_mode_api(const struct device *dev, enum motor_mode mode);
 
 void rs_tx_isr_handler(struct k_timer *dummy);
 void rs_tx_data_handler(struct k_work *work);
@@ -157,7 +157,6 @@ static const struct motor_driver_api rs_motor_api = {
 	.motor_get = rs_get,
 	.motor_set = rs_set,
 	.motor_control = rs_motor_control,
-	.motor_set_mode = rs_motor_set_mode_api,
 };
 
 #define MOTOR_COUNT            DT_NUM_INST_STATUS_OKAY(rs_motor)
@@ -210,7 +209,6 @@ K_TIMER_DEFINE(rs_tx_timer, rs_tx_isr_handler, NULL);
 				    &rs_motor_api);
 
 #define RS_MOTOR_INST(inst)                                                                        \
-	MOTOR_DT_DRIVER_PID_DEFINE(DT_DRV_INST(inst))                                              \
 	RS_MOTOR_CONFIG_INST(inst)                                                                 \
 	RS_MOTOR_DATA_INST(inst)                                                                   \
 	RS_MOTOR_DEFINE_INST(inst)

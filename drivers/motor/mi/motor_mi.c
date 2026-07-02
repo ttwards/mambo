@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/_stdint.h>
-#include <zephyr/drivers/pid.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/time_units.h>
@@ -89,7 +88,7 @@ void mi_motor_control(const struct device *dev, enum motor_cmd cmd)
 		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-set-zero");
 		break;
 
-	case CLEAR_PID:
+	case CLEAR_CONTROLLER:
 		break;
 	case CLEAR_ERROR:
 		break;
@@ -183,7 +182,7 @@ static void mi_motor_pack(const struct device *dev, struct can_frame *frame)
 	}
 }
 
-int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
+static int mi_apply_controller_mode(const struct device *dev, enum motor_mode mode)
 {
 
 	struct mi_motor_data *data = dev->data;
@@ -191,6 +190,7 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	char mode_str[10] = {0};
 
 	data->common.mode = mode;
+	data->common.target = mode == VO ? MOTOR_TARGET_SPEED : MOTOR_TARGET_POSITION;
 
 	switch (mode) {
 	case MIT:
@@ -220,15 +220,25 @@ int mi_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	frame.data[4] = (uint8_t)mode;
 	motor_can_sched_send_prio(cfg->common.phy, &frame, true, "mi-set-mode");
 
-	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
-		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
+	for (int i = 0; i < motor_get_controller_count(dev); i++) {
+		const struct motor_controller_config *ctrl_cfg = &cfg->common.controllers[i];
+
+		if (ctrl_cfg->param_count == 0) {
 			break;
 		}
-		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
-			struct pid_config params;
-			pid_get_params(cfg->common.pid_datas[i], &params);
+		if (data->common.controller_id != MOTOR_CONTROLLER_ID_AUTO &&
+		    data->common.controller_id != i) {
+			continue;
+		}
+		if (strcmp(ctrl_cfg->info.name, mode_str) == 0 || ctrl_cfg->info.mode == mode) {
+			struct motor_controller_params params = {0};
+
+			if (motor_controller_get_params(ctrl_cfg, 0, &params) < 0) {
+				continue;
+			}
 
 			data->common.mode = mode;
+			data->common.controller_id = i;
 			data->params.k_p = params.k_p;
 			data->params.k_d = params.k_d;
 			break;
@@ -401,6 +411,8 @@ int mi_get(const struct device *dev, motor_status_t *status)
 	status->torque = data->common.torque;
 	status->temperature = data->common.temperature;
 	status->mode = data->common.mode;
+	status->target = data->common.target;
+	status->controller_id = data->common.controller_id;
 	status->sum_angle = data->delta_deg_sum;
 	status->speed_limit[0] = V_MAX;
 	status->speed_limit[1] = V_MIN;
@@ -410,21 +422,47 @@ int mi_get(const struct device *dev, motor_status_t *status)
 	return 0;
 }
 
-int mi_set(const struct device *dev, motor_status_t *status)
+int mi_set(const struct device *dev, motor_setpoint_t *status)
 {
 	struct mi_motor_data *data = dev->data;
 	const struct mi_motor_cfg *cfg = dev->config;
 	char mode_str[10] = {0};
+	motor_controller_info_t controller = {0};
+	enum motor_mode previous_mode = data->common.mode;
+	uint8_t previous_controller_id = data->common.controller_id;
+	int ret;
+
+	ret = motor_resolve_controller(dev, status, &controller);
+	if (ret < 0) {
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return ret;
+	}
+	if (status->target != MOTOR_TARGET_NONE) {
+		data->common.controller_id = status->controller_id;
+	} else {
+		return 0;
+	}
+
 	if (status->mode == MIT) {
 		strcpy(mode_str, "mit");
+		data->common.target = MOTOR_TARGET_POSITION;
 		data->target_pos = status->angle / RAD2DEG;
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
 	} else if (status->mode == PV) {
+		if (status->target != MOTOR_TARGET_NONE &&
+		    status->target != MOTOR_TARGET_POSITION) {
+			return -ENOSYS;
+		}
 		strcpy(mode_str, "pv");
+		data->common.target = MOTOR_TARGET_POSITION;
 		data->target_pos = status->angle / RAD2DEG;
 		data->target_radps = RPM2RADPS(status->rpm);
 	} else if (status->mode == VO) {
+		if (status->target != MOTOR_TARGET_NONE && status->target != MOTOR_TARGET_SPEED) {
+			return -ENOSYS;
+		}
+		data->common.target = MOTOR_TARGET_SPEED;
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_pos = 0;
 		data->target_torque = 0;
@@ -432,27 +470,39 @@ int mi_set(const struct device *dev, motor_status_t *status)
 		return -ENOSYS;
 	}
 	if (status->mode == MIT) {
-		for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
-			if (cfg->common.pid_datas[i]->pid_dev == NULL) {
+		for (int i = 0; i < motor_get_controller_count(dev); i++) {
+			const struct motor_controller_config *ctrl_cfg = &cfg->common.controllers[i];
+
+			if (ctrl_cfg->param_count == 0) {
 				break;
 			}
-			if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
-				struct pid_config params;
-				pid_get_params(cfg->common.pid_datas[i], &params);
+			if (data->common.controller_id != MOTOR_CONTROLLER_ID_AUTO &&
+			    data->common.controller_id != i) {
+				continue;
+			}
+			if (strcmp(ctrl_cfg->info.name, mode_str) == 0 ||
+			    ctrl_cfg->info.mode == status->mode) {
+				struct motor_controller_params params = {0};
+
+				if (motor_controller_get_params(ctrl_cfg, 0, &params) < 0) {
+					continue;
+				}
 
 				data->common.mode = status->mode;
+				data->common.controller_id = i;
 				data->params.k_p = params.k_p;
 				data->params.k_d = params.k_d;
 				break;
 			}
 		}
 	}
-	if (status->mode != data->common.mode) {
-		data->common.mode = status->mode;
-		if (mi_motor_set_mode(dev, status->mode) < 0) {
+	if (status->mode != previous_mode || status->controller_id != previous_controller_id) {
+		if (mi_apply_controller_mode(dev, status->mode) < 0) {
 			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 			return -EIO;
 		}
+	} else {
+		data->common.mode = status->mode;
 	}
 
 	return 0;

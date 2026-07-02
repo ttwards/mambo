@@ -6,7 +6,6 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/motor.h>
-#include <zephyr/drivers/pid.h>
 
 #define DT_DRV_COMPAT lk_motor
 
@@ -28,9 +27,9 @@
 #define LK_CMD_TORQUE_LOOP    0xA1 // 转矩闭环
 #define LK_CMD_SPEED_LOOP     0xA2 // 速度闭环
 #define LK_CMD_POS_LOOP_MULTI 0xA4 // 多圈位置闭环2 (带限速)
-#define LK_PID_ANGLE_UPDATE   0x0A // 角度PID参数更新
-#define LK_PID_SPEED_UPDATE   0x0B // 速度PID参数更新
-#define LK_PID_TORQUE_UPDATE  0x0C // 转矩PID参数更新
+#define LK_PARAM_ANGLE_UPDATE  0x0A // 角度控制器参数更新
+#define LK_PARAM_SPEED_UPDATE  0x0B // 速度控制器参数更新
+#define LK_PARAM_TORQUE_UPDATE 0x0C // 转矩控制器参数更新
 // 单位转换因子
 #define LK_POS_FACTOR         100.0f  // 0.01 degree/LSB -> float * 100 = int
 #define LK_SPD_FACTOR_FINE    100.0f  // 0.01 dps/LSB (速度闭环控制值)
@@ -42,6 +41,9 @@
 #define CAN_SEND_STACK_SIZE 4096
 #define CAN_SEND_PRIORITY   -1
 #define PI                  3.14159265f
+#ifdef RAD2DEG
+#undef RAD2DEG
+#endif
 #define RAD2DEG             (180.0f / PI)
 #define RPM2DPS             6.0f // RPM 转 degree per second
 
@@ -81,8 +83,8 @@ struct lk_motor_data {
 	bool online;
 	bool update;
 	bool enabled;
-	struct pid_config params[3];
-	bool pidupdate[3];
+	struct motor_controller_params params[3];
+	bool params_update[3];
 };
 
 struct lk_motor_cfg {
@@ -91,12 +93,12 @@ struct lk_motor_cfg {
 };
 
 struct k_work_q lk_work_queue;
-int lk_set(const struct device *dev, motor_status_t *status);
+int lk_set(const struct device *dev, motor_setpoint_t *status);
 int lk_get(const struct device *dev, motor_status_t *status);
 void lk_motor_control(const struct device *dev, enum motor_cmd cmd);
 void lk_rx_data_handler(struct k_work *work);
 void lk_tx_data_handler(struct k_work *work);
-void lk_txpid_data_handler(struct k_work *work);
+void lk_tx_params_data_handler(struct k_work *work);
 void lk_init_handler(struct k_work *work);
 void lk_tx_isr_handler(struct k_timer *dummy);
 
@@ -113,7 +115,7 @@ K_THREAD_STACK_DEFINE(lk_work_queue_stack, CAN_SEND_STACK_SIZE);
 
 K_WORK_DEFINE(lk_rx_data_handle, lk_rx_data_handler);
 K_WORK_DEFINE(lk_tx_data_handle, lk_tx_data_handler);
-K_WORK_DEFINE(lk_txpid_data_handle, lk_txpid_data_handler);
+K_WORK_DEFINE(lk_tx_params_data_handle, lk_tx_params_data_handler);
 K_WORK_DEFINE(lk_init_work, lk_init_handler);
 
 K_TIMER_DEFINE(lk_tx_timer, lk_tx_isr_handler, NULL);
@@ -152,7 +154,6 @@ int lk_init(const struct device *dev);
 				    &motor_api_funcs);
 
 #define LKMOTOR_INST(inst)                                                                         \
-	MOTOR_DT_DRIVER_PID_DEFINE(DT_DRV_INST(inst))                                              \
 	LKMOTOR_CONFIG_INST(inst)                                                                  \
 	LKMOTOR_DATA_INST(inst)                                                                    \
 	LKMOTOR_DEFINE_INST(inst)

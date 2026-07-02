@@ -173,67 +173,74 @@ int dji_set_torque(const struct device *dev, float torque)
 	return 0;
 }
 
-int dji_set_mode(const struct device *dev, enum motor_mode mode)
+static int dji_select_controller(const struct device *dev, enum motor_mode mode,
+				 enum motor_target target)
 {
 	struct dji_motor_data *data = dev->data;
-	const struct dji_motor_config *cfg = dev->config;
 
-	char mode_str[10];
-	switch (mode) {
-	case ML_TORQUE:
-		strcpy(mode_str, "torque");
-		break;
-	case ML_ANGLE:
-		strcpy(mode_str, "angle");
-		break;
-		case ML_SPEED:
-			strcpy(mode_str, "speed");
-			break;
-		default:
-			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
-			return -ENOSYS;
-		}
-
-	data->current_mode_index = -1;
-
-	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.pid_datas); i++) {
-		if (cfg->common.pid_datas[i]->pid_dev == NULL && mode == ML_TORQUE) {
-			data->current_mode_index = i;
-			break;
-		}
-		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
-			pid_calc(cfg->common.pid_datas[i]);
-			data->current_mode_index = i;
-			break;
-		}
+	if (mode == VO && target == MOTOR_TARGET_TORQUE) {
+		data->current_mode_index = -1;
+		data->common.mode = mode;
+		data->common.target = target;
+		data->common.controller_id = MOTOR_CONTROLLER_ID_AUTO;
+		return 0;
 	}
-
-	if (data->current_mode_index == -1) {
+	if ((mode != PV || target != MOTOR_TARGET_POSITION) &&
+	    (mode != VO || target != MOTOR_TARGET_SPEED)) {
 		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
 		return -ENOSYS;
 	}
-
+	if (data->common.controller_id == MOTOR_CONTROLLER_ID_AUTO) {
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return -ENOSYS;
+	}
+	data->current_mode_index = -1;
+	data->current_mode_index = data->common.controller_id;
 	data->common.mode = mode;
+	data->common.target = target;
 
 	return 0;
 }
 
-int dji_set(const struct device *dev, motor_status_t *status)
+int dji_set(const struct device *dev, motor_setpoint_t *status)
 {
 	struct dji_motor_data *data = dev->data;
+	motor_controller_info_t controller = {0};
+	int ret;
 
-	if (status->mode == ML_TORQUE) {
-		dji_set_torque(dev, status->torque);
-	} else if (status->mode == ML_ANGLE) {
-		dji_set_angle(dev, status->angle);
-	} else if (status->mode == ML_SPEED) {
-		dji_set_speed(dev, status->rpm);
-	} else {
+	if (status->target == MOTOR_TARGET_NONE) {
 		goto limits_set;
 	}
 
-	dji_set_mode(dev, status->mode);
+	if (!(status->mode == VO && status->target == MOTOR_TARGET_TORQUE &&
+	      status->controller_select == MOTOR_CONTROLLER_DEFAULT)) {
+		ret = motor_resolve_controller(dev, status, &controller);
+		if (ret < 0) {
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+			return ret;
+		}
+	}
+
+	if (status->mode == PV && status->target == MOTOR_TARGET_POSITION) {
+		dji_set_angle(dev, status->angle);
+		data->target_torque_ff = status->torque;
+	} else if (status->mode == VO && status->target == MOTOR_TARGET_SPEED) {
+		dji_set_speed(dev, status->rpm);
+		data->target_torque_ff = status->torque;
+	} else if (status->mode == VO && status->target == MOTOR_TARGET_TORQUE) {
+		dji_set_torque(dev, status->torque);
+		data->target_torque_ff = 0;
+	} else {
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return -ENOSYS;
+	}
+
+	data->common.controller_id = status->controller_id;
+	if (dji_select_controller(dev, status->mode, status->target) < 0) {
+		return -ENOSYS;
+	}
 	data->common.mode = status->mode;
+	data->common.target = status->target;
 
 limits_set:
 	if (status->speed_limit[0] < 0 || status->speed_limit[1] > 0) {
@@ -275,7 +282,7 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 				motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dji-set-zero");
 		}
 		break;
-	case CLEAR_PID:
+	case CLEAR_CONTROLLER:
 		break;
 	case CLEAR_ERROR:
 		data->missed_times = 0;
@@ -297,19 +304,22 @@ void dji_control(const struct device *dev, enum motor_cmd cmd)
 int dji_get(const struct device *dev, motor_status_t *status)
 {
 	struct dji_motor_data *data = dev->data;
-	const struct dji_motor_config *cfg = dev->config;
 
-	if (strcmp(cfg->common.capabilities[data->current_mode_index], "torque") == 0) {
-		status->mode = ML_TORQUE;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "angle") == 0) {
-		status->mode = ML_ANGLE;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "speed") == 0) {
-		status->mode = ML_SPEED;
-	} else if (strcmp(cfg->common.capabilities[data->current_mode_index], "mit") == 0) {
-		status->mode = MIT;
-	}
-
-	memcpy(status, &data->common, sizeof(motor_status_t));
+	status->angle = data->common.angle;
+	status->rpm = data->common.rpm;
+	status->torque = data->common.torque;
+	status->temperature = data->common.temperature;
+	status->sum_angle = data->common.sum_angle;
+	status->speed_limit[0] = data->common.speed_limit[0];
+	status->speed_limit[1] = data->common.speed_limit[1];
+	status->torque_limit[0] = data->common.torque_limit[0];
+	status->torque_limit[1] = data->common.torque_limit[1];
+	status->mode = data->common.mode;
+	status->target = data->common.target;
+	status->controller_id = data->common.controller_id;
+	status->online = data->online;
+	status->enabled = data->online;
+	status->error = 0;
 
 	return 0;
 }
@@ -329,9 +339,9 @@ int dji_init(const struct device *dev)
 		data->ctrl_struct->can_dev = (struct device *)cfg->common.phy;
 		uint8_t frame_id = frameID_to_index(cfg->common.tx_id);
 		uint8_t id = motor_id(dev);
-		const struct dji_motor_config *follow_cfg =
-			(const struct dji_motor_config *)cfg->follow->config;
-		if (cfg->follow && cfg->common.phy == follow_cfg->common.phy) {
+		if (cfg->follow &&
+		    cfg->common.phy ==
+			    ((const struct dji_motor_config *)cfg->follow->config)->common.phy) {
 			const struct device *follow_dev = cfg->follow;
 			data->ctrl_struct->mask[frame_id] |= 1 << motor_id(follow_dev);
 		} else {
@@ -345,40 +355,6 @@ int dji_init(const struct device *dev)
 		data->ctrl_struct->full_handle.handler = dji_tx_handler;
 
 		data->online = true;
-		for (int i = 0;
-		     i < sizeof(cfg->common.pid_datas) / sizeof(cfg->common.pid_datas[0]); i++) {
-			if (cfg->common.pid_datas[i] == NULL) {
-				if (i > 0) {
-					pid_reg_output(cfg->common.pid_datas[i - 1],
-						       &data->target_torque);
-				}
-				data->current_mode_index = i;
-				break;
-			}
-			if (strcmp(cfg->common.capabilities[i], "speed") == 0) {
-				pid_reg_input(cfg->common.pid_datas[i], &data->common.rpm,
-					      &data->target_rpm);
-				if (i > 0) {
-					pid_reg_output(cfg->common.pid_datas[i - 1],
-						       &data->target_rpm);
-				}
-			} else if (strcmp(cfg->common.capabilities[i], "angle") == 0) {
-				pid_reg_input(cfg->common.pid_datas[i], &data->pid_angle_input,
-					      &data->pid_ref_input);
-			} else if (strcmp(cfg->common.capabilities[i], "torque") == 0) {
-				pid_reg_input(cfg->common.pid_datas[i], &data->common.torque,
-					      &data->target_torque);
-				if (i > 0) {
-					pid_reg_output(cfg->common.pid_datas[i - 1],
-						       &data->target_torque);
-				}
-				} else {
-					motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
-					return -1;
-				}
-			pid_reg_time(cfg->common.pid_datas[i], &(data->curr_time),
-				     &(data->prev_time));
-		}
 		data->ctrl_struct->motor_devs[id] = (struct device *)dev;
 		data->prev_time = 0;
 		data->ctrl_struct->flags = 0;
@@ -430,9 +406,10 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 		const struct dji_motor_config *motor_cfg =
 			(const struct dji_motor_config *)dev->config;
 		int8_t frame_id = frameID_to_index(motor_cfg->common.tx_id);
-		const struct dji_motor_config *follow_cfg =
-			(const struct dji_motor_config *)motor_cfg->follow->config;
-		if (motor_cfg->follow && motor_cfg->common.phy == follow_cfg->common.phy) {
+		if (motor_cfg->follow &&
+		    motor_cfg->common.phy ==
+			    ((const struct dji_motor_config *)motor_cfg->follow->config)
+				    ->common.phy) {
 			data->ctrl_struct->mask[frame_id] |= 1 << motor_id(motor_cfg->follow);
 			} else {
 				data->ctrl_struct->mask[frame_id] |= 1 << id;
@@ -461,8 +438,8 @@ void can_rx_callback(const struct device *can_dev, struct can_frame *frame, void
 	data->curr_time = curr_time;
 	data->calculated = false;
 
-	struct dji_motor_config *follow_cfg = (struct dji_motor_config *)cfg->follow->config;
-	if (cfg->follow && cfg->common.phy == follow_cfg->common.phy) {
+	if (cfg->follow &&
+	    cfg->common.phy == ((const struct dji_motor_config *)cfg->follow->config)->common.phy) {
 		goto exit;
 	}
 
@@ -517,7 +494,7 @@ static void proceed_delta_degree(const struct device *dev)
 		}
 	}
 
-	data->pid_angle_input = delta_angle;
+	data->position_error = -delta_angle;
 }
 
 static void can_pack_add(uint8_t *data, struct device *motor_dev, uint8_t num)
@@ -550,9 +527,10 @@ static void dji_timeout_handle(const struct device *dev, uint32_t curr_time)
 		if (data->missed_times > 3) {
 			LOG_ERR("Motor \"%s\" on canbus \"%s\" is not responding", dev->name,
 				cfg->common.phy->name);
-			const struct dji_motor_config *follow_cfg =
-				(const struct dji_motor_config *)cfg->follow->config;
-			if (cfg->follow && cfg->common.phy == follow_cfg->common.phy) {
+			if (cfg->follow &&
+			    cfg->common.phy ==
+				    ((const struct dji_motor_config *)cfg->follow->config)
+					    ->common.phy) {
 				data->ctrl_struct->mask[frameID_to_index(cfg->common.tx_id)] &=
 					~(1 << motor_id(cfg->follow));
 			} else {
@@ -612,41 +590,55 @@ static void motor_calc(const struct device *dev)
 		goto torque2current;
 	}
 
-	for (int i = data->current_mode_index; i < SIZE_OF_ARRAY(config->common.capabilities);
-	     i++) {
-		if (config->common.pid_datas[i]->pid_dev == NULL) {
+	if (data->current_mode_index < 0) {
+		goto torque2current;
+	}
+
+	const struct motor_controller_config *ctrl_cfg =
+		&config->common.controllers[data->current_mode_index];
+	struct motor_controller_data *ctrl_data = &data->common.controllers[data->current_mode_index];
+	struct motor_controller_input input = {
+		.status = {
+			.angle = data->common.angle,
+			.rpm = data->common.rpm,
+			.torque = data->common.torque,
+			.sum_angle = data->common.sum_angle,
+		},
+		.setpoint = {
+			.angle = data->target_angle,
+			.rpm = data->target_rpm,
+			.torque = data->target_torque_ff,
+			.speed_limit = {data->common.speed_limit[0], data->common.speed_limit[1]},
+			.torque_limit = {data->common.torque_limit[0],
+					 data->common.torque_limit[1]},
+			.mode = data->common.mode,
+			.target = data->common.target,
+		},
+		.position_error = data->position_error,
+		.has_position_error = true,
+		.timestamp = data->curr_time,
+	};
+	struct motor_controller_output output = {0};
+
+	if (motor_controller_update(ctrl_data, ctrl_cfg, &input, &output) == 0 &&
+	    output.type == MOTOR_OUTPUT_TORQUE) {
+		data->target_rpm = output.speed;
+		data->target_torque = output.value;
+	}
+
 torque2current:
-			if (data->target_torque > data->common.torque_limit[1]) {
-				data->target_torque = data->common.torque_limit[1];
-			} else if (data->target_torque < data->common.torque_limit[0]) {
-				data->target_torque = data->common.torque_limit[0];
-			}
-			if (!config->is_dm_motor) {
-				data->target_current = data->target_torque / config->gear_ratio *
-						       convert[data->convert_num][TORQUE2CURRENT];
-			} else {
-				data->target_current = data->target_torque * 16384.0f /
-						       (config->dm_torque_ratio * config->dm_i_max *
-							config->gear_ratio);
-			}
-			break;
-		}
-
-		pid_calc(config->common.pid_datas[i]);
-
-		if (strcmp(config->common.capabilities[i], "angle") == 0) {
-			if (data->target_rpm > data->common.speed_limit[1]) {
-				data->target_rpm = data->common.speed_limit[1];
-			} else if (data->target_rpm < data->common.speed_limit[0]) {
-				data->target_rpm = data->common.speed_limit[0];
-			}
-		}
-
-		if (strcmp(config->common.capabilities[i], "torque") == 0) {
-			break;
-		} else if (strcmp(config->common.capabilities[i], "mit") == 0) {
-			break;
-		}
+	if (data->target_torque > data->common.torque_limit[1]) {
+		data->target_torque = data->common.torque_limit[1];
+	} else if (data->target_torque < data->common.torque_limit[0]) {
+		data->target_torque = data->common.torque_limit[0];
+	}
+	if (!config->is_dm_motor) {
+		data->target_current = data->target_torque / config->gear_ratio *
+				       convert[data->convert_num][TORQUE2CURRENT];
+	} else {
+		data->target_current = data->target_torque * 16384.0f /
+				       (config->dm_torque_ratio * config->dm_i_max *
+					config->gear_ratio);
 	}
 	k_spin_unlock(&data->data_input_lock, key);
 }

@@ -14,7 +14,6 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/motor.h>
-#include <zephyr/drivers/pid.h>
 #include <zephyr/drivers/can.h>
 
 #define DT_DRV_COMPAT dm_motor
@@ -25,6 +24,9 @@
 #define PI 3.14159265f
 
 #define RAD2ROUND 1.0f / (2 * PI)
+#ifdef RAD2DEG
+#undef RAD2DEG
+#endif
 #define RAD2DEG   (180.0f / PI)
 #define DEG2RAD   PI / 180.0f
 
@@ -70,7 +72,7 @@ struct dm_motor_data {
 	int16_t RAWrpm;
 	int16_t RAWtorque;
 
-	struct pid_config params;
+	struct motor_controller_params params;
 
 	uint64_t last_tx_time;
 };
@@ -89,10 +91,9 @@ struct dm_motor_config {
 struct k_work_q dm_work_queue;
 
 // 函数声明
-int dm_set(const struct device *dev, motor_status_t *status);
+int dm_set(const struct device *dev, motor_setpoint_t *status);
 void dm_control(const struct device *dev, enum motor_cmd cmd);
 int dm_get(const struct device *dev, motor_status_t *status);
-void dm_motor_set_mode(const struct device *dev, enum motor_mode mode);
 
 void dm_rx_data_handler(struct k_work *work);
 
@@ -105,7 +106,6 @@ void dm_init_handler(struct k_work *work);
 static const struct motor_driver_api motor_api_funcs = {
 	.motor_get = dm_get,
 	.motor_set = dm_set,
-	.motor_set_mode = dm_motor_set_mode,
 	.motor_control = dm_control,
 };
 
@@ -163,7 +163,6 @@ K_TIMER_DEFINE(dm_tx_timer, dm_tx_isr_handler, NULL);
 				    &motor_api_funcs);
 
 #define DMMOTOR_INST(inst)                                                                         \
-	MOTOR_DT_DRIVER_PID_DEFINE(DT_DRV_INST(inst))                                              \
 	DMMOTOR_CONFIG_INST(inst)                                                                  \
 	DMMOTOR_DATA_INST(inst)                                                                    \
 	DMMOTOR_DEFINE_INST(inst)

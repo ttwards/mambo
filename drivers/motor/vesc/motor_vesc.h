@@ -11,7 +11,6 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/motor.h>
-#include <zephyr/drivers/pid.h>
 
 #define DT_DRV_COMPAT vesc_motor
 
@@ -78,10 +77,9 @@ struct vesc_motor_config {
 	float i_max; // 最大电流
 };
 
-int vesc_set(const struct device *dev, motor_status_t *status);
+int vesc_set(const struct device *dev, motor_setpoint_t *status);
 int vesc_get(const struct device *dev, motor_status_t *status);
 void vesc_motor_control(const struct device *dev, enum motor_cmd cmd);
-void vesc_motor_set_mode(const struct device *dev, enum motor_mode mode);
 
 extern const struct motor_driver_api vesc_motor_api;
 
@@ -99,11 +97,7 @@ extern const struct motor_driver_api vesc_motor_api;
 
 #define VESC_MOTOR_CONFIG_INST(inst)                                                               \
 	static const struct vesc_motor_config vesc_motor_config_##inst = {                         \
-		.common =                                                                          \
-			{                                                                          \
-				.phy = DEVICE_DT_GET(DT_INST_PHANDLE(inst, can_channel)),          \
-				.id = DT_INST_PROP(inst, id),                                      \
-			},                                                                         \
+		.common = MOTOR_DT_DRIVER_CONFIG_INST_GET(inst),                                   \
 		.kv = DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), kv, 150.0f),                        \
 		.kt = 60.0f /                                                                      \
 		      (2.f * VESC_PI * (float)DT_STRING_UNQUOTED_OR(DT_DRV_INST(inst), kv, 150)),  \

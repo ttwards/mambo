@@ -57,7 +57,6 @@ const struct motor_driver_api vesc_motor_api = {
 	.motor_get = vesc_get,
 	.motor_set = vesc_set,
 	.motor_control = vesc_motor_control,
-	.motor_set_mode = vesc_motor_set_mode,
 };
 
 void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
@@ -74,7 +73,7 @@ void vesc_motor_control(const struct device *dev, enum motor_cmd cmd)
 		break;
 	case CLEAR_ERROR:
 		break;
-	case CLEAR_PID:
+	case CLEAR_CONTROLLER:
 		break;
 	}
 }
@@ -98,7 +97,8 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 	frame->flags = CAN_FRAME_IDE;
 	if (data->enable == true) {
 		switch (data->common.mode) {
-			case ML_TORQUE:
+		case VO:
+			if (data->common.target == MOTOR_TARGET_TORQUE) {
 				vesc_can_id->msg_type = CAN_PACKET_SET_CURRENT;
 				if (data->target_current > cfg->i_max) {
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
@@ -107,14 +107,13 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
 					cur_tmp = -cfg->i_max * 1000; // mA
 				} else {
-				cur_tmp = (int32_t)(data->target_current * 1000); // mA
-			}
-			frame->data[0] = (cur_tmp >> 24) & 0xFF;
-			frame->data[1] = (cur_tmp >> 16) & 0xFF;
-			frame->data[2] = (cur_tmp >> 8) & 0xFF;
-			frame->data[3] = cur_tmp & 0xFF;
-			break;
-			case ML_SPEED:
+					cur_tmp = (int32_t)(data->target_current * 1000); // mA
+				}
+				frame->data[0] = (cur_tmp >> 24) & 0xFF;
+				frame->data[1] = (cur_tmp >> 16) & 0xFF;
+				frame->data[2] = (cur_tmp >> 8) & 0xFF;
+				frame->data[3] = cur_tmp & 0xFF;
+			} else if (data->common.target == MOTOR_TARGET_SPEED) {
 				vesc_can_id->msg_type = CAN_PACKET_SET_RPM;
 				if (data->target_radps > cfg->v_max) {
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
@@ -123,15 +122,19 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
 					vel_tmp = -cfg->v_max * VESC_RPM_PER_RADPS;
 				} else {
-				vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
+					vel_tmp = (int32_t)(data->target_radps * VESC_RPM_PER_RADPS);
+				}
+				vel_tmp = vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
+				frame->data[0] = (vel_tmp >> 24) & 0xFF;
+				frame->data[1] = (vel_tmp >> 16) & 0xFF;
+				frame->data[2] = (vel_tmp >> 8) & 0xFF;
+				frame->data[3] = vel_tmp & 0xFF;
 			}
-			vel_tmp = vel_tmp * cfg->pole_pairs * cfg->gear_ratio; // rpm -> erpm
-			frame->data[0] = (vel_tmp >> 24) & 0xFF;
-			frame->data[1] = (vel_tmp >> 16) & 0xFF;
-			frame->data[2] = (vel_tmp >> 8) & 0xFF;
-			frame->data[3] = vel_tmp & 0xFF;
 			break;
-			case ML_ANGLE:
+		case PV:
+			if (data->common.target != MOTOR_TARGET_POSITION) {
+				break;
+			}
 				vesc_can_id->msg_type = CAN_PACKET_SET_POS;
 				if (data->target_angle > (cfg->p_max * VESC_RAD_PER_DEG)) {
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
@@ -140,28 +143,16 @@ static void vesc_motor_pack(const struct device *dev, struct can_frame *frame)
 					motor_stats_inc(MOTOR_STAT_LIMIT_CLAMP);
 					data->target_angle = -cfg->p_max * VESC_RAD_PER_DEG;
 				}
-			pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
-			frame->data[0] = (pos_tmp >> 24) & 0xFF;
-			frame->data[1] = (pos_tmp >> 16) & 0xFF;
-			frame->data[2] = (pos_tmp >> 8) & 0xFF;
-			frame->data[3] = pos_tmp & 0xFF;
+				pos_tmp = data->target_angle * VESC_DEG_PER_RAD * cfg->gear_ratio;
+				frame->data[0] = (pos_tmp >> 24) & 0xFF;
+				frame->data[1] = (pos_tmp >> 16) & 0xFF;
+				frame->data[2] = (pos_tmp >> 8) & 0xFF;
+				frame->data[3] = pos_tmp & 0xFF;
 			break;
 		default:
 			break;
 		}
 	}
-}
-
-/**
- * @brief Set motor mode
- * @param dev Pointer to the device
- * @param mode Desired motor mode
- * @return 0 on success, negative error code on failure
- */
-void vesc_motor_set_mode(const struct device *dev, enum motor_mode mode)
-{
-	struct vesc_motor_data *data = dev->data;
-	data->common.mode = mode;
 }
 
 /**
@@ -205,28 +196,52 @@ int vesc_set_angle(const struct device *dev, float angle)
  * @brief Set motor parameters
  *
  */
-int vesc_set(const struct device *dev, motor_status_t *status)
+int vesc_set(const struct device *dev, motor_setpoint_t *status)
 {
 	struct vesc_motor_data *data = dev->data;
 	const struct vesc_motor_config *cfg = dev->config;
-	switch (status->mode) {
-	case ML_TORQUE:
-		vesc_set_torque(dev, status->torque);
-		break;
-	case ML_SPEED:
-		vesc_set_speed(dev, status->rpm);
-		break;
-		case ML_ANGLE:
-			vesc_set_angle(dev, status->angle);
-			break;
-		default:
+	motor_controller_info_t controller = {0};
+	int ret;
+
+	if (status->target == MOTOR_TARGET_NONE) {
+		return 0;
+	}
+	if (status->controller_select == MOTOR_CONTROLLER_BY_ID) {
+		ret = motor_resolve_controller(dev, status, &controller);
+		if (ret < 0) {
 			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
-			return -ENOSYS;
+			return ret;
+		}
+	} else {
+		status->controller_id = MOTOR_CONTROLLER_ID_AUTO;
 	}
 
-	if (status->mode != data->common.mode) {
-		vesc_motor_set_mode(dev, status->mode);
+	switch (status->mode) {
+	case VO:
+		if (status->target == MOTOR_TARGET_TORQUE) {
+			vesc_set_torque(dev, status->torque);
+		} else if (status->target == MOTOR_TARGET_SPEED) {
+			vesc_set_speed(dev, status->rpm);
+		} else {
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+			return -ENOSYS;
+		}
+		break;
+	case PV:
+		if (status->target != MOTOR_TARGET_POSITION) {
+			motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+			return -ENOSYS;
+		}
+		vesc_set_angle(dev, status->angle);
+		break;
+	default:
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return -ENOSYS;
 	}
+
+	data->common.mode = status->mode;
+	data->common.target = status->target;
+	data->common.controller_id = status->controller_id;
 
 	struct can_frame frame = {0};
 	vesc_motor_pack(dev, &frame);
@@ -277,6 +292,8 @@ int vesc_get(const struct device *dev, motor_status_t *status)
 	status->torque = data->common.torque;
 	status->temperature = data->common.temperature;
 	status->mode = data->common.mode;
+	status->target = data->common.target;
+	status->controller_id = data->common.controller_id;
 	status->sum_angle = data->common.angle;
 	status->speed_limit[0] = cfg->v_max;
 	status->speed_limit[1] = -cfg->v_max;

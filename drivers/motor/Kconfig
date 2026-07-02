@@ -42,28 +42,24 @@ config MOTOR_DJI
     bool "MOTOR DJI"
     help
       Add support for dji motors
-    select PID
     select MOTOR_COMMON
 
 config MOTOR_DM
     bool "MOTOR DM"
     help
       Add support for dm motors
-    select PID
     select MOTOR_COMMON
 
 config MOTOR_MI
     bool "MOTOR MI"
     help
       Add support for mi motors
-    select PID
     select MOTOR_COMMON
 
 config MOTOR_RS
     bool "MOTOR RS"
     help
       Add support for rs motors
-    select PID
     select MOTOR_COMMON
 
 config MOTOR_VESC
@@ -76,7 +72,6 @@ config MOTOR_LK
     bool "MOTOR LK"
     help
       Add support for lk motors
-    select PID
     select MOTOR_COMMON
 
 config MOTOR_LOG_LEVEL

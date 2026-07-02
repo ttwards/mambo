@@ -15,7 +15,6 @@
 #include "syscalls/kernel.h"
 #include "zephyr/drivers/can.h"
 #include "zephyr/drivers/motor.h"
-#include "zephyr/drivers/pid.h"
 #include "zephyr/kernel.h"
 
 #define DT_DRV_COMPAT dm_motor
@@ -107,7 +106,7 @@ void dm_control(const struct device *dev, enum motor_cmd cmd)
 		memcpy(frame.data, set_zero_frame, 8);
 		motor_can_sched_send_prio(cfg->common.phy, &frame, true, "dm-set-zero");
 		break;
-	case CLEAR_PID:
+	case CLEAR_CONTROLLER:
 		memset(&data->params, 0, sizeof(data->params));
 		break;
 	case CLEAR_ERROR:
@@ -124,7 +123,6 @@ static void dm_motor_pack(const struct device *dev, struct can_frame *frame)
 {
 	uint16_t pos_tmp, vel_tmp, kp_tmp, kd_tmp, tor_tmp;
 	uint8_t *pbuf, *vbuf;
-	// float hybrid_p_tmp;
 	struct dm_motor_data *data = dev->data;
 	const struct dm_motor_config *cfg = dev->config;
 
@@ -160,13 +158,6 @@ static void dm_motor_pack(const struct device *dev, struct can_frame *frame)
 
 		memcpy(frame->data, vbuf, 4);
 		break;
-	case HYBRID:
-		// hybrid_p_tmp = data->target_angle * DEG2RAD;
-		// memcpy(frame->data, &hybrid_p_tmp, 4);
-		// vel_tmp = data->target_radps * 100;
-		// frame->data[4] = (vel_tmp >> 8);
-		// frame->data[5] = vel_tmp;
-		break;
 	default:
 		break;
 	}
@@ -182,6 +173,8 @@ int dm_get(const struct device *dev, motor_status_t *status)
 	status->torque = data->common.torque;
 
 	status->mode = data->common.mode;
+	status->target = data->common.target;
+	status->controller_id = data->common.controller_id;
 	status->sum_angle = data->delta_deg_sum;
 	status->speed_limit[0] = cfg->v_max;
 	status->speed_limit[1] = cfg->v_max;
@@ -228,13 +221,14 @@ static void dm_edit_reg_value(const struct device *dev, uint16_t can_id, uint8_t
 	motor_can_sched_send_prio(dev, &frame, true, "dm-reg");
 }
 
-void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
+static void dm_apply_controller_mode(const struct device *dev, enum motor_mode mode)
 {
 	struct dm_motor_data *data = dev->data;
 	const struct dm_motor_config *cfg = dev->config;
 	char mode_str[10];
 
 	data->common.mode = mode;
+	data->common.target = mode == VO ? MOTOR_TARGET_SPEED : MOTOR_TARGET_POSITION;
 
 	switch (mode) {
 	case MIT:
@@ -252,27 +246,33 @@ void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
 		data->tx_offset = 0x200;
 		dm_edit_reg_value(cfg->common.phy, cfg->common.tx_id, 0x0A, 0x03);
 		break;
-	case HYBRID:
-		snprintf(mode_str, sizeof(mode_str), "hybrid");
-		data->tx_offset = 0x300;
-		dm_edit_reg_value(cfg->common.phy, cfg->common.tx_id, 0x0A, 0x04);
-		break;
 	default:
 		data->online = false;
 		dm_control(dev, DISABLE_MOTOR);
 	}
 
 	bool found = false;
-	for (int i = 0; i < SIZE_OF_ARRAY(cfg->common.capabilities); i++) {
-		if (cfg->common.pid_datas[i]->pid_dev == NULL) {
+	for (int i = 0; i < motor_get_controller_count(dev); i++) {
+		const struct motor_controller_config *ctrl_cfg = &cfg->common.controllers[i];
+
+		if (ctrl_cfg->param_count == 0) {
 			break;
 		}
-		if (strcmp(cfg->common.capabilities[i], mode_str) == 0) {
-			struct pid_config params = {0};
-			pid_get_params(cfg->common.pid_datas[i], &params);
+		if (data->common.controller_id != MOTOR_CONTROLLER_ID_AUTO &&
+		    data->common.controller_id != i) {
+			continue;
+		}
+		if (strcmp(ctrl_cfg->info.name, mode_str) == 0 || ctrl_cfg->info.mode == mode) {
+			struct motor_controller_params params = {0};
+
+			if (motor_controller_get_params(ctrl_cfg, 0, &params) < 0) {
+				continue;
+			}
 
 			data->common.mode = mode;
+			data->common.controller_id = i;
 			data->params.k_p = params.k_p;
+			data->params.k_i = params.k_i;
 			data->params.k_d = params.k_d;
 			found = true;
 			break;
@@ -280,7 +280,7 @@ void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	}
 	if (!found) {
 		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
-		if (mode != VO && mode != HYBRID) {
+		if (mode != VO) {
 			dm_control(dev, DISABLE_MOTOR);
 			data->enable = false;
 		}
@@ -298,20 +298,45 @@ void dm_motor_set_mode(const struct device *dev, enum motor_mode mode)
 	}
 }
 
-int dm_set(const struct device *dev, motor_status_t *status)
+int dm_set(const struct device *dev, motor_setpoint_t *status)
 {
 	struct dm_motor_data *data = dev->data;
+	motor_controller_info_t controller = {0};
+	enum motor_mode previous_mode = data->common.mode;
+	uint8_t previous_controller_id = data->common.controller_id;
+	int ret;
+
+	ret = motor_resolve_controller(dev, status, &controller);
+	if (ret < 0) {
+		motor_stats_inc(MOTOR_STAT_UNSUPPORTED_MODE);
+		return ret;
+	}
+	if (status->target != MOTOR_TARGET_NONE) {
+		data->common.controller_id = status->controller_id;
+	} else {
+		return 0;
+	}
 
 	if (status->mode == MIT) {
+		data->common.target = MOTOR_TARGET_POSITION;
 		data->target_angle = status->angle/(RAD2DEG);
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_torque = status->torque;
 		// data->params.k_p = 0;
 		// data->params.k_d = 0;
 	} else if (status->mode == PV) {
+		if (status->target != MOTOR_TARGET_NONE &&
+		    status->target != MOTOR_TARGET_POSITION) {
+			return -ENOSYS;
+		}
+		data->common.target = MOTOR_TARGET_POSITION;
 		data->target_angle = status->angle;
 		data->target_radps = RPM2RADPS(status->rpm);
 	} else if (status->mode == VO) {
+		if (status->target != MOTOR_TARGET_NONE && status->target != MOTOR_TARGET_SPEED) {
+			return -ENOSYS;
+		}
+		data->common.target = MOTOR_TARGET_SPEED;
 		data->target_radps = RPM2RADPS(status->rpm);
 		data->target_angle = 0;
 		data->target_torque = 0;
@@ -319,6 +344,12 @@ int dm_set(const struct device *dev, motor_status_t *status)
 		data->params.k_d = 0;
 	} else {
 		return -ENOSYS;
+	}
+
+	if (previous_mode != status->mode || previous_controller_id != status->controller_id) {
+		dm_apply_controller_mode(dev, status->mode);
+	} else {
+		data->common.mode = status->mode;
 	}
 
 	return 0;
