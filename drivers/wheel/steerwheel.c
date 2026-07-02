@@ -23,6 +23,8 @@ extern "C" {
 #define PI 3.14159265358f
 #endif
 
+#define STEERWHEEL_STOP_SPEED_EPS 1.0e-4f
+
 typedef struct {
 	wheel_cfg_t common;
 
@@ -63,6 +65,13 @@ static inline void steerwheel_set_speed(const struct device *dev, float speed, f
 		speed = -speed;
 	}
 	data->target.speed = speed;
+
+	if (fabsf(speed) < STEERWHEEL_STOP_SPEED_EPS) {
+		data->target.speed = 0.0f;
+		data->set_rpm = 0.0f;
+		motor_set_speed(cfg->wheel_motor, 0.0f);
+		return;
+	}
 
 	if (cfg->multi_turn) {
 		// if (1) {
