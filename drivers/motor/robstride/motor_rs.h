@@ -94,7 +94,7 @@ struct rs_can_id {
 	uint32_t master_id: 8; // 主机ID
 	uint32_t reserved: 8;  // 数据区
 	uint32_t msg_type: 5; // 通信类型
-	uint32_t res: 3; 
+	uint32_t res: 3;
 };
 
 enum MOTOR_TYPE {
