@@ -20,6 +20,12 @@ config MOTOR_COMMON
       Add support for common motor drivers
 	select CAN
 
+config LA_YINSHI
+	bool "MOTOR LA YINSHI"
+	help
+	  Add support for Yinshi LA series electric cylinders
+	select SERIAL
+
 config MOTOR_DJI
     bool "MOTOR DJI"
     help
@@ -78,4 +84,6 @@ config CAN_COUNT
     default 2
     help
       The number of CAN devices
+
+rsource "la_yinshi/Kconfig"
 endif

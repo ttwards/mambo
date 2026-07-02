@@ -1,0 +1,29 @@
+/*
+ * Yinshi LA Series Micro Servo Electric Cylinder Demo - Devicetree Overlay
+ *
+ * D-type  (3.3V LVTTL): 921600 bps, 8N1, full-duplex  - omit de-gpios
+ * 2-type  (RS485):      115200 bps, 8N1, half-duplex - add de-gpios
+ *
+ * Wire colours: Black=GND, Red=VCC(7-9V), Yellow=RX/TX(A+), Blue=TX/RX(B-)
+ */
+
+/ {
+	linear_actuator {
+		la_demo: la_demo {
+			compatible = "yinshi,la";
+			uart = <&usart1>;
+			id = <1>;
+			max-retries = <3>;
+			reply-timeout-ms = <5>;
+			/* de-gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>; */ /* RS485 only */
+		};
+	};
+};
+
+&usart1 {
+	/* Override for LA actuator: D-Type TTL needs 921600 bps */
+	status = "okay";
+	pinctrl-0 = <&usart1_rx_pa10 &usart1_tx_pa9>;
+	pinctrl-names = "default";
+	current-speed = <921600>;
+};

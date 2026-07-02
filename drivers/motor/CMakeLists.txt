@@ -13,4 +13,6 @@ add_subdirectory_ifdef(CONFIG_MOTOR_RS robstride)
 
 add_subdirectory_ifdef(CONFIG_MOTOR_VESC vesc)
 
+add_subdirectory_ifdef(CONFIG_LA_YINSHI la_yinshi)
+
 add_subdirectory_ifdef(CONFIG_MOTOR_COMMON common)

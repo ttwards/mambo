@@ -1,0 +1,18 @@
+# Yinshi LA Series Micro Servo Electric Cylinder driver configuration
+#
+# Copyright (c) 2025 ttwards <12411711@mail.sustech.edu.cn>
+# SPDX-License-Identifier: Apache-2.0
+
+if LA_YINSHI
+
+config LA_YINSHI_INIT_PRIORITY
+	int "Yinshi LA driver init priority"
+	default 90
+	help
+	  Device initialization priority for Yinshi LA electric cylinders.
+
+module = LA_YINSHI
+module-str = LA_YINSHI
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # LA_YINSHI
